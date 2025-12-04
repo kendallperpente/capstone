@@ -6,26 +6,80 @@ import urllib.parse
 import streamlit as st
 import openai
 
+#html/CSS styling 
 st.markdown(
     """
     <style>
     .stApp {
-        background-color: #e6f5e9;
+        background-color: #f8f9fa;
+    }
+    
+    .stButton > button {
+        background-color: #007bff;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        padding: 0.5rem 1rem;
+        transition: background-color 0.2s;
+    }
+    
+    .stButton > button:hover {
+        background-color: #0056b3;
+    }
+    
+    .stTextInput > div > div > input {
+        border: 1px solid #ced4da;
+        border-radius: 5px;
+        padding: 0.5rem;
+    }
+    
+    .stTextInput > div > div > input:focus {
+        border-color: #007bff;
+        box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+    }
+    
+    .stDownloadButton > button {
+        background-color: #28a745;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        padding: 0.4rem 0.8rem;
+    }
+    
+    .stDownloadButton > button:hover {
+        background-color: #1e7e34;
+    }
+    
+    h1 {
+        color: #343a40;
+        text-align: center;
+        margin-bottom: 1rem;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-st.set_page_config(page_title="Dog Medical Chatbot", page_icon="🐾")
+st.set_page_config(page_title="Dog Medical Chatbot")
 
-st.title("🐶 Dog Medical Assistant (Non‑Emergency)")
-st.caption(
-    "Friendly, educational help for dog health questions. "
-    "This does NOT replace a licensed veterinarian or emergency care."
+st.title("Dog Medical Assistant")
+st.warning("Non-Emergency Support Only - This does NOT replace a licensed veterinarian")
+st.info("Friendly, educational help for dog health questions")
+
+# OpenAI client will be created in the function with API key
+
+warm_greeting = (
+    "Hi there! Thanks for stopping by.\n\n"
+    "I'm a friendly assistant focused on dog health and everyday care. "
+    "You can tell me what's going on with your pup, and I'll help you think through "
+    "possible causes, things to watch for, and questions you might want to ask a vet.\n\n"
+    "**Important:** I'm not a veterinarian, so I can't give an official diagnosis or "
+    "tell you exactly what treatment to use. If your dog seems very sick, is in a lot "
+    "of pain, or you're worried it might be an emergency, please contact a veterinarian "
+    "or an emergency clinic right away.\n\n"
+    "When you're ready, tell me a bit about your dog (age, breed, weight) and what "
+    "symptoms you're seeing, and we'll go through it together."
 )
-
-openai.api_key = os.getenv("OPENAI_API_KEY")
 
 SYSTEM_PROMPT = """
 You are a warm, friendly assistant specialized in dog (canine) health and basic first aid.
@@ -48,32 +102,27 @@ Behavior:
 """
 
 def get_dog_medical_reply(messages):
-    completion = openai.ChatCompletion.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "system", "content": SYSTEM_PROMPT}] + messages,
-        temperature=0.3,
-    )
-    return completion["choices"][0]["message"]["content"]
+    try:
+        client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "system", "content": SYSTEM_PROMPT}] + messages,
+            temperature=0.3,
+        )
+        return completion.choices[0].message.content
+    except Exception as e:
+        return f"Sorry, I'm having trouble connecting to the AI service. Error: {str(e)}"
 
 if "dog_conversations" not in st.session_state:
-    warm_greeting = (
-        "Hi there! 🐶💚 Thanks for stopping by.\n\n"
-        "I’m a friendly assistant focused on dog health and everyday care. "
-        "You can tell me what's going on with your pup, and I'll help you think through "
-        "possible causes, things to watch for, and questions you might want to ask a vet.\n\n"
-        "**Important:** I'm not a veterinarian, so I can't give an official diagnosis or "
-        "tell you exactly what treatment to use. If your dog seems very sick, is in a lot "
-        "of pain, or you're worried it might be an emergency, please contact a veterinarian "
-        "or an emergency clinic right away.\n\n"
-        "When you're ready, tell me a bit about your dog (age, breed, weight) and what "
-        "symptoms you're seeing, and we'll go through it together. 🐾"
-    )
+    # Using global warm_greeting variable defined above
     st.session_state.dog_conversations = {
         "Dog 1": [{"role": "assistant", "content": warm_greeting}],
         "Dog 2": [{"role": "assistant", "content": warm_greeting}],
     }
 
 with st.sidebar:
+    st.header("Pet Selection")
+    
     current_dog = st.selectbox(
         "Which dog are we talking about?",
         ["Dog 1", "Dog 2"],
@@ -81,7 +130,7 @@ with st.sidebar:
     )
 
     st.markdown("---")
-    st.header("⚠️ Safety Notice")
+    st.header("Safety Notice")
     st.write(
         "- This bot is for **educational purposes only**.\n"
         "- It does **not** provide diagnoses or prescriptions.\n"
@@ -90,7 +139,7 @@ with st.sidebar:
     )
 
     st.markdown("---")
-    st.header("🏥 Find nearby vets")
+    st.header("Find Nearby Vets")
     location_input = st.text_input(
         "Your city or postal code",
         placeholder="e.g. Brooklyn, NY or 94103",
@@ -106,7 +155,7 @@ with st.sidebar:
         query = f"{'emergency ' if search_type == 'Emergency vets' else ''}veterinarian near {location_input}"
         encoded_query = urllib.parse.quote_plus(query)
         maps_url = f"https://www.google.com/maps/search/{encoded_query}"
-        st.markdown(f"[🔍 Open in Maps]({maps_url})", unsafe_allow_html=True)
+        st.markdown(f"[Open in Maps]({maps_url})", unsafe_allow_html=True)
 
     st.markdown("---")
     conv = st.session_state.dog_conversations[current_dog]
