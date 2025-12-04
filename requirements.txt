@@ -1,2 +1,7 @@
 streamlit
 openai
+haystack-ai
+sentence-transformers
+datasets
+requests
+beautifulsoup4

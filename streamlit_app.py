@@ -101,15 +101,23 @@ Behavior:
 - Never claim to replace professional veterinary care.
 """
 
-def get_dog_medical_reply(messages):
+def get_dog_medical_reply(messages, use_rag=False, use_scraped_data=False):
     try:
-        client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        completion = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "system", "content": SYSTEM_PROMPT}] + messages,
-            temperature=0.3,
-        )
-        return completion.choices[0].message.content
+        if use_rag:
+            # Use RAG pipeline for grounded answers
+            from rag_module import get_rag_pipeline
+            rag = get_rag_pipeline(use_scraped_data=use_scraped_data)
+            user_question = messages[-1]["content"]  # Get the latest user message
+            return rag.answer_question(user_question)
+        else:
+            # Use standard OpenAI API
+            client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            completion = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "system", "content": SYSTEM_PROMPT}] + messages,
+                temperature=0.3,
+            )
+            return completion.choices[0].message.content
     except Exception as e:
         return f"Sorry, I'm having trouble connecting to the AI service. Error: {str(e)}"
 
@@ -128,6 +136,23 @@ with st.sidebar:
         ["Dog 1", "Dog 2"],
         help="Each dog has its own saved conversation history.",
     )
+    
+    st.markdown("---")
+    st.header("Settings")
+    use_rag = st.checkbox(
+        "Use Knowledge Base (RAG)",
+        value=False,
+        help="Uses a knowledge base for more grounded answers. May be slower on first run."
+    )
+    
+    if use_rag:
+        use_scraped = st.checkbox(
+            "Use Wikipedia Dog Diseases Data",
+            value=False,
+            help="Uses data scraped from Wikipedia. Run scrapper.py first to generate dog_diseases.json"
+        )
+    else:
+        use_scraped = False
 
     st.markdown("---")
     st.header("Safety Notice")
@@ -184,7 +209,7 @@ if user_input:
 
     with st.chat_message("assistant"):
         with st.spinner("Thinking about your dog's symptoms..."):
-            reply = get_dog_medical_reply(messages)
+            reply = get_dog_medical_reply(messages, use_rag=use_rag, use_scraped_data=use_scraped)
         st.markdown(reply)
 
     messages.append({"role": "assistant", "content": reply})
