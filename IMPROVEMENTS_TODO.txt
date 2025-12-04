@@ -1,0 +1,59 @@
+Improvements & To-Do - Make the app more ChatGPT-like and robust
+
+1) Make the RAG pipeline reloadable
+   - Change `get_rag_pipeline(use_scraped_data=False)` in `rag_module.py` to accept a
+     `force_reload=False` parameter. When `force_reload=True` or when `use_scraped_data` differs
+     from the cached instance, recreate the `DogHealthRAG` instance instead of returning the
+     existing singleton.
+   - Provide a small public function `reload_rag_pipeline(use_scraped_data=False)` that wraps
+     `get_rag_pipeline(..., force_reload=True)` for clarity.
+
+2) Add a Streamlit UI control to rebuild the KB
+   - Add a `st.button("Refresh Knowledge Base")` in the sidebar that calls the reload function.
+   - Show a spinner and success/error messages when rebuilding completes.
+
+3) Surface KB loading status in the UI
+   - At startup, show whether `dog_diseases.json` exists and how many documents are available.
+   - When RAG is enabled, display a short status message: "RAG: Loaded X docs" or "RAG: Not found".
+
+4) Make paths explicit and robust
+   - Use `Path(__file__).parent` or a config value to locate `dog_diseases.json` to avoid
+     problems when Streamlit is started from a different working directory.
+
+5) Add optional on-demand scraping (with caution)
+   - Add a sidebar checkbox and button `Run Scraper (creates dog_diseases.json)` that calls
+     `scrapper.scrape_dog_diseases()` and `save_documents_to_json()`.
+   - Rate-limit and warn the user about scraping policies and performance.
+
+6) Improve error handling and logging
+   - Wrap external calls (OpenAI, Haystack) with clearer error messages.
+   - Add logging to `rag_module` that prints whether the KB was loaded from JSON or default dataset.
+
+7) Caching & performance
+   - Cache embeddings (or serialized document store) so repeated restarts don't recompute embeddings.
+   - Consider using a persistent document store (FAISS, Milvus, or SQL) instead of in-memory for larger KBs.
+
+8) UX improvements
+   - Show source citations / document titles and URLs in RAG replies.
+   - Allow toggling the number of retrieved docs.
+   - Add conversation export/import, per-dog metadata, and conversation persistence.
+
+9) Testing & CI
+   - Add unit tests for `scrapper.py` (mock HTTP responses) and `rag_module` (mock dataset and model calls).
+   - Add GitHub Actions to run linting and tests on pushes.
+
+10) Deployment
+   - Pin dependency versions in `requirements.txt`.
+   - Add a `Dockerfile` for deterministic deployment (include model/cache volumes for embeddings).
+   - Document resource requirements (RAM, disk) and cost expectations for OpenAI usage.
+
+11) Security and safety
+   - Validate/sanitize external content before indexing.
+   - Add explicit safety disclaimers and a clear escalation path in the UI for emergencies.
+
+12) Small code fixes and housekeeping
+   - Consider renaming `scrapper.py` -> `scraper.py` for correct spelling.
+   - Remove or surface `print()` calls in library code and use logging instead.
+   - Add a simple README section with quickstart commands (or update the root `README.md`).
+
+If you'd like, I can implement items 1-3 now (pipeline reload + Streamlit control + status display).
