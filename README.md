@@ -20,12 +20,20 @@ streamlit run streamlit_app.py
 ```
 
 ### 2. Web Scraper (`scrapper.py`)
-A simple web scraping tool using BeautifulSoup and requests.
+A web scraping tool that collects dog breed information from the Royal Kennel Club website.
+
+**Features:**
+- Scrapes breed information from https://www.royalkennelclub.com/search/breeds-a-to-z
+- Extracts detailed breed descriptions and characteristics
+- Saves data to JSON format for use with the RAG pipeline
+- Respectful scraping with delays between requests
 
 **Usage:**
 ```bash
 python scrapper.py
 ```
+
+This will create `dog_breeds_rkc.json` with breed data that can be loaded by the RAG pipeline.
 
 ### 3. RAG Pipeline (`ragpipeline.py`)
 Retrieval-Augmented Generation pipeline implementation.

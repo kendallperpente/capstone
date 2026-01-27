@@ -147,9 +147,9 @@ with st.sidebar:
     
     if use_rag:
         use_scraped = st.checkbox(
-            "Use Wikipedia Dog Diseases Data",
+            "Use Royal Kennel Club Dog Breeds Data",
             value=False,
-            help="Uses data scraped from Wikipedia. Run scrapper.py first to generate dog_diseases.json"
+            help="Uses data scraped from Royal Kennel Club. Run scrapper.py first to generate dog_breeds_rkc.json"
         )
     else:
         use_scraped = False

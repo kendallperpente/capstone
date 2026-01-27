@@ -15,29 +15,42 @@ class DogHealthRAG:
         """Initialize the RAG pipeline for dog health questions
         
         Args:
-            use_scraped_data: If True, load from dog_diseases.json (from scrapper.py)
+            use_scraped_data: If True, load from dog_breeds_rkc.json (from scrapper.py - Royal Kennel Club)
+                             or dog_diseases.json (old Wikipedia scraper - for backwards compatibility)
                              If False, use the default seven-wonders dataset
         """
         # Document Store
         self.document_store = InMemoryDocumentStore()
         
-        # Load dataset
-        if use_scraped_data and os.path.exists("dog_diseases.json"):
-            print("Loading scraped dog diseases data...")
-            with open("dog_diseases.json", "r") as f:
-                data = json.load(f)
-            docs = [
-                Document(
-                    content=item["content"],
-                    meta={
-                        "title": item.get("title", "Unknown"),
-                        "url": item.get("url", ""),
-                        "source": item.get("source", "Scraped")
-                    }
-                )
-                for item in data
-            ]
-        else:
+        # Load dataset - prioritize Royal Kennel Club data, fall back to old Wikipedia data
+        if use_scraped_data:
+            data_file = None
+            if os.path.exists("dog_breeds_rkc.json"):
+                data_file = "dog_breeds_rkc.json"
+                print("Loading Royal Kennel Club dog breeds data...")
+            elif os.path.exists("dog_diseases.json"):
+                data_file = "dog_diseases.json"
+                print("Loading scraped dog diseases data (Wikipedia)...")
+            
+            if data_file:
+                with open(data_file, "r") as f:
+                    data = json.load(f)
+                docs = [
+                    Document(
+                        content=item["content"],
+                        meta={
+                            "title": item.get("title", "Unknown"),
+                            "url": item.get("url", ""),
+                            "source": item.get("source", "Scraped")
+                        }
+                    )
+                    for item in data
+                ]
+            else:
+                print("⚠ No scraped data found. Falling back to default dataset.")
+                use_scraped_data = False
+        
+        if not use_scraped_data:
             print("Loading default dataset...")
             from datasets import load_dataset
             dataset = load_dataset("bilgeyucel/seven-wonders", split="train")
