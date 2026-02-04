@@ -105,6 +105,10 @@ class DogBreedRAG:
 Given the following information, answer the question. If the information doesn't directly address the question,
 ask a brief follow-up and provide a few reasonable options.
 
+Return:
+- Best-fit breed with 2-4 bullet reasons
+- Two alternative breeds with 1-2 bullet reasons each
+
 Context:
 {% for document in documents %}
     {{ document.content }}
@@ -140,14 +144,24 @@ Answer:"""
 
 # Initialize once
 _rag_instance = None
+_rag_instance_use_scraped = None
 
 def get_rag_pipeline(use_scraped_data=False):
     """Get or create the RAG pipeline instance (singleton)
     
     Args:
-        use_scraped_data: Load from scraped Wikipedia data if True
+        use_scraped_data: Load from scraped breed data if True
     """
-    global _rag_instance
-    if _rag_instance is None:
+    global _rag_instance, _rag_instance_use_scraped
+    if _rag_instance is None or _rag_instance_use_scraped != use_scraped_data:
         _rag_instance = DogBreedRAG(use_scraped_data=use_scraped_data)
+        _rag_instance_use_scraped = use_scraped_data
+    return _rag_instance
+
+
+def reload_rag_pipeline(use_scraped_data=False):
+    """Force rebuild of the RAG pipeline instance."""
+    global _rag_instance, _rag_instance_use_scraped
+    _rag_instance = DogBreedRAG(use_scraped_data=use_scraped_data)
+    _rag_instance_use_scraped = use_scraped_data
     return _rag_instance
