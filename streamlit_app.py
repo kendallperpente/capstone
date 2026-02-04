@@ -1,13 +1,72 @@
 import streamlit as st
+import os
+import json
+from scrapper import scrape_dog_breeds_rkc, save_documents_to_json
+from rag_module import get_rag_pipeline, reload_rag_pipeline
 
-# Initialize session state for quiz visibility
+# Initialize session state
 if "show_quiz" not in st.session_state:
     st.session_state.show_quiz = False
+if "rag_pipeline" not in st.session_state:
+    st.session_state.rag_pipeline = None
+if "scraped_data_loaded" not in st.session_state:
+    st.session_state.scraped_data_loaded = False
 
 st.set_page_config(page_title="Dog Breed Selector")
 
 st.title("Dog Breed Selector")
 st.write("Use the tools below to explore dog breeds and find a great match for you.")
+
+# Check for scraped data
+data_file = "dog_breeds_rkc.json"
+has_scraped_data = os.path.exists(data_file)
+
+# Data source indicator and scraper controls
+with st.expander("⚙️ Data Source Settings", expanded=False):
+    st.write("**Current Data Status:**")
+    if has_scraped_data:
+        with open(data_file, "r") as f:
+            data = json.load(f)
+        st.success(f"✓ Using scraped data from Royal Kennel Club ({len(data)} breeds)")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 Refresh Scraped Data"):
+                with st.spinner("Scraping fresh breed data from Royal Kennel Club..."):
+                    try:
+                        docs = scrape_dog_breeds_rkc()
+                        if docs:
+                            save_documents_to_json(docs, data_file)
+                            st.session_state.scraped_data_loaded = False
+                            st.session_state.rag_pipeline = None
+                            st.success(f"✓ Successfully scraped {len(docs)} breeds!")
+                            st.rerun()
+                        else:
+                            st.error("Failed to scrape data. Using existing data.")
+                    except Exception as e:
+                        st.error(f"Error during scraping: {str(e)}")
+        
+        with col2:
+            if st.button("♻️ Reload RAG Pipeline"):
+                st.session_state.rag_pipeline = None
+                st.session_state.scraped_data_loaded = False
+                st.success("RAG pipeline will be reloaded on next query")
+    else:
+        st.warning("⚠ No scraped data found. Using built-in fallback dataset (5 breeds)")
+        if st.button("🌐 Scrape Royal Kennel Club Data"):
+            with st.spinner("Scraping breed data from Royal Kennel Club... This may take a minute."):
+                try:
+                    docs = scrape_dog_breeds_rkc()
+                    if docs:
+                        save_documents_to_json(docs, data_file)
+                        st.session_state.scraped_data_loaded = False
+                        st.session_state.rag_pipeline = None
+                        st.success(f"✓ Successfully scraped {len(docs)} breeds!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to scrape data. Please try again later.")
+                except Exception as e:
+                    st.error(f"Error during scraping: {str(e)}")
 
 # Two main columns: left = search by characteristics, right = quiz
 left_col, right_col = st.columns(2)
@@ -28,10 +87,34 @@ with left_col:
 
     if st.button("Search breeds"):
         if characteristics:
-            st.info(
-                f"Searching for breeds matching: **{characteristics}** "
-                "In the future, this will query your RAG pipeline."
-            )
+            # Initialize RAG pipeline if not already done
+            if st.session_state.rag_pipeline is None:
+                with st.spinner("Initializing AI system..."):
+                    try:
+                        st.session_state.rag_pipeline = get_rag_pipeline(use_scraped_data=has_scraped_data)
+                        st.session_state.scraped_data_loaded = has_scraped_data
+                    except Exception as e:
+                        st.error(f"Error initializing RAG pipeline: {str(e)}")
+                        st.stop()
+            
+            # Get AI recommendation
+            with st.spinner("Finding the best breeds for you..."):
+                try:
+                    question = f"I'm looking for a dog with these characteristics: {characteristics}. What breeds would you recommend?"
+                    answer = st.session_state.rag_pipeline.answer_question(question)
+                    
+                    st.success("**Breed Recommendations:**")
+                    st.markdown(answer)
+                    
+                    # Show data source
+                    if st.session_state.scraped_data_loaded:
+                        st.caption("_Based on Royal Kennel Club breed data_")
+                    else:
+                        st.caption("_Based on built-in dataset. Scrape data for more breeds!_")
+                        
+                except Exception as e:
+                    st.error(f"Error getting recommendation: {str(e)}")
+                    st.info("Make sure you have set your OPENAI_API_KEY environment variable.")
         else:
             st.warning("Please enter some characteristics first.")
 
@@ -91,7 +174,45 @@ with right_col:
 
         # Placeholder "result" logic: purely front-end, no real model yet
         if submitted:
-            st.success(
-                "Thanks for completing the quiz!"
-            )
-            st.write("Example: You might be a great match for a **Golden Retriever** or **Labrador Retriever** based on your answers.")
+            # Initialize RAG pipeline if not already done
+            if st.session_state.rag_pipeline is None:
+                with st.spinner("Initializing AI system..."):
+                    try:
+                        st.session_state.rag_pipeline = get_rag_pipeline(use_scraped_data=has_scraped_data)
+                        st.session_state.scraped_data_loaded = has_scraped_data
+                    except Exception as e:
+                        st.error(f"Error initializing RAG pipeline: {str(e)}")
+                        st.stop()
+            
+            # Build a detailed question from quiz answers
+            with st.spinner("Analyzing your answers and finding the best breeds..."):
+                try:
+                    question = f"""Based on this profile, recommend dog breeds:
+- Living space: {q1}
+- Preferred size: {q2}
+- Grooming frequency: {q3}
+- Shedding tolerance: {q4}
+- Coat length preference: {q5}
+- Daily exercise: {q6}
+- Other animals: {q7}
+- Children: {q8}
+- Dog experience: {q9}
+- Dog type: {q10}
+- Desired lifespan: {q11}
+
+What breeds would be the best match?"""
+                    
+                    answer = st.session_state.rag_pipeline.answer_question(question)
+                    
+                    st.success("**Your Personalized Breed Recommendations:**")
+                    st.markdown(answer)
+                    
+                    # Show data source
+                    if st.session_state.scraped_data_loaded:
+                        st.caption("_Based on Royal Kennel Club breed data_")
+                    else:
+                        st.caption("_Based on built-in dataset. Scrape data for more breeds!_")
+                        
+                except Exception as e:
+                    st.error(f"Error getting recommendation: {str(e)}")
+                    st.info("Make sure you have set your OPENAI_API_KEY environment variable.")
