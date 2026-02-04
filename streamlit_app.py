@@ -1,186 +1,97 @@
-# app.py - Dog Breed Recommender
-
-import os
-import datetime
 import streamlit as st
-import openai
 
-#html/CSS styling 
-st.markdown(
-    """
-    <style>
-    .stApp {
-        background-color: #000000;
-        color: #f9fafb;
-    }
+# Initialize session state for quiz visibility
+if "show_quiz" not in st.session_state:
+    st.session_state.show_quiz = False
 
-    /* Typography */
-    h1, h2, h3, h4, h5, h6, p, li, div, span {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        color: #f9fafb;
-    }
+st.set_page_config(page_title="Dog Breed Selector")
 
-    /* Container width */
-    .block-container {
-        max-width: 820px;
-        padding-top: 2.5rem;
-        padding-bottom: 3rem;
-    }
+st.title("Dog Breed Selector")
+st.write("Use the tools below to explore dog breeds and find a great match for you.")
 
-    /* Buttons - minimal */
-    .stButton > button,
-    .stDownloadButton > button {
-        background: #0b0b0b;
-        color: #f9fafb;
-        border: 1px solid #1f2937;
-        border-radius: 8px;
-        padding: 0.45rem 0.9rem;
-        box-shadow: none;
-    }
+# Two main columns: left = search by characteristics, right = quiz
+left_col, right_col = st.columns(2)
 
-    .stButton > button:hover,
-    .stDownloadButton > button:hover {
-        border-color: #374151;
-        background: #111111;
-    }
+# ---------------------------
+# LEFT: Search by characteristics
+# ---------------------------
+with left_col:
+    st.subheader("Search by Characteristics")
 
-    /* Inputs */
-    .stTextInput > div > div > input,
-    .stChatInput > div > div > textarea {
-        border: 1px solid #1f2937;
-        border-radius: 10px;
-        padding: 0.6rem 0.75rem;
-        background: #0b0b0b;
-        color: #f9fafb;
-    }
+    st.write("Type the dog characteristics you're looking for:")
 
-    .stTextInput > div > div > input:focus,
-    .stChatInput > div > div > textarea:focus {
-        border-color: #374151;
-        box-shadow: none;
-    }
-
-    /* Sidebar */
-    section[data-testid="stSidebar"] {
-        background: #0b0b0b;
-        border-right: 1px solid #1f2937;
-    }
-
-    /* Chat message spacing */
-    .stChatMessage {
-        padding: 0.4rem 0;
-    }
-
-    /* Hide Streamlit footer */
-    footer {visibility: hidden;}
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.set_page_config(page_title="Dog Breed Recommender")
-
-st.title("Dog Breed Recommender")
-st.caption("Minimal, chat-first breed matching. Share your lifestyle to get recommendations.")
-
-# OpenAI client will be created in the function with API key
-
-warm_greeting = (
-    "Hi! I can help you find dog breeds that match your lifestyle.\n\n"
-    "To get started, share details like your home size, activity level, "
-    "experience with dogs, time for grooming/training, and whether you have kids "
-    "or other pets. I’ll suggest a few breeds and explain why they fit."
-)
-
-SYSTEM_PROMPT = """
-You are a warm, friendly assistant that recommends dog breeds based on a user's lifestyle
-and preferences. You are not a veterinarian.
-
-Tone and style:
-- Sound friendly, practical, and encouraging.
-- Keep answers concise and easy to scan.
-- Prefer bullet points and short paragraphs.
-
-Behavior:
-- Ask for missing details (home size, activity level, grooming tolerance, experience,
-  time for training, kids/other pets, allergies, and budget).
-- Recommend 1 best-fit breed with brief reasons that map to the user's needs,
-  then offer 2 alternatives.
-- If unsure, suggest broader categories and ask follow-up questions.
-- Encourage users to research and meet breeds before deciding.
-"""
-
-def get_breed_reply(messages, use_rag=False, use_scraped_data=False):
-    try:
-        if use_rag:
-            # Use RAG pipeline for grounded answers
-            from rag_module import get_rag_pipeline
-            rag = get_rag_pipeline(use_scraped_data=use_scraped_data)
-            user_question = messages[-1]["content"]  # Get the latest user message
-            return rag.answer_question(user_question)
-        else:
-            # Use standard OpenAI API
-            client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-            completion = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "system", "content": SYSTEM_PROMPT}] + messages,
-                temperature=0.3,
-            )
-            return completion.choices[0].message.content
-    except Exception as e:
-        return f"Sorry, I'm having trouble connecting to the AI service. Error: {str(e)}"
-
-if "conversation" not in st.session_state:
-    st.session_state.conversation = [{"role": "assistant", "content": warm_greeting}]
-
-with st.sidebar:
-    st.header("Settings")
-    use_rag = st.checkbox(
-        "Use Knowledge Base (RAG)",
-        value=True,
-        help="Uses a breed knowledge base for grounded suggestions. May be slower on first run."
+    characteristics = st.text_input(
+        "Enter characteristics",
+        placeholder="e.g., high energy, good with kids, low shedding...",
+        help="Separate multiple traits with commas"
     )
 
-    if use_rag:
-        use_scraped = st.checkbox(
-            "Use Royal Kennel Club Breed Data",
-            value=True,
-            help="Uses data scraped from Royal Kennel Club. Run scrapper.py first to generate dog_breeds_rkc.json"
-        )
-        if not os.path.exists("dog_breeds_rkc.json"):
-            st.warning("dog_breeds_rkc.json not found. Suggestions will use a small built-in dataset.")
-    else:
-        use_scraped = False
+    if st.button("Search breeds"):
+        if characteristics:
+            st.info(
+                f"Searching for breeds matching: **{characteristics}** "
+                "In the future, this will query your RAG pipeline."
+            )
+        else:
+            st.warning("Please enter some characteristics first.")
 
-    st.markdown("---")
-    conv = st.session_state.conversation
-    export_lines = [f"{'You:' if msg['role']=='user' else 'Assistant:'} {msg['content']}" for msg in conv]
-    export_str = "\n\n".join(export_lines)
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"breed_chat_{timestamp}.txt"
-    st.download_button("Download", export_str, filename, "text/plain")
+# ---------------------------
+# RIGHT: 10-question quiz 
+# ---------------------------
+with right_col:
+    st.subheader("Find Your Best-Fit Breed")
 
-    if st.button("Clear conversation"):
-        st.session_state.conversation = [{"role": "assistant", "content": warm_greeting}]
-        st.rerun()
+    st.write("Click the button below to take a short quiz and get a breed suggestion.")
 
-messages = st.session_state.conversation
+    if st.button("Take quiz", type="primary", use_container_width=True):
+        st.session_state.show_quiz = True
 
-for msg in messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+    if st.session_state.show_quiz:
+        st.write("Answer these 10 quick questions to get a recommended breed.")
 
-user_input = st.chat_input("Tell me about your lifestyle and what you want in a dog.")
+        with st.form("breed_quiz"):
+            q1 = st.radio("What kind of space do you live in?", ["Small House", "Large House", "Flat/Apartment", "Other"])
+            q2 = st.radio("What size dog do you prefer?", ["Small", "Small-Medium", "Medium", "Large", "Extra Large", "No preference"])
+            q3 = st.radio("How often do you want to groom your dog?", ["Daily", "Once a week", "More than once a week", "Less often than once a week"])
+            q4 = st.radio("Do you mind shedding?", ["Yes", "No", "No preference"])
+            q5 = st.radio("Do you have a preference for coat length?", ["Short", "Medium", "Long", "No preference"])
+            q6 = st.radio("How much exercise can you give the dog daily?", ["30 minutes", "1 hour", "2 hours", "More than 2 hours"])
+            q7 = st.radio("Do you or will you have other animals around the dog?", [
+                "Yes I have dogs", 
+                "Yes I have cats", 
+                "Yes I have multiple animals (dogs, cats, etc.)", 
+                "Yes I have other animals", 
+                "No I do not have other animals"
+            ])
+            q8 = st.radio("Do you or will you have children around the dog?", ["Yes", "No", "Unsure"])
+            q9 = st.radio("How much experience do you have with dogs?", [
+                "None",
+                "Very little",
+                "Average amount",
+                "A lot of experience",
+                "I am very well informed on how to take care of dogs and what they need to thrive"
+            ])
+            q10 = st.radio("What type of dog are you looking for?", [
+                "Toy", 
+                "Hound", 
+                "Working", 
+                "Gundog", 
+                "Pastoral", 
+                "Utility", 
+                "Unsure/No preference"
+            ])
+            q11 = st.radio("What age range are you looking for in a dog?", [
+                "Less than 10 years", 
+                "Over 10 years", 
+                "Over 12 years", 
+                "No preference"
+            ])
 
-if user_input:
-    messages.append({"role": "user", "content": user_input})
-    with st.chat_message("user"):
-        st.markdown(user_input)
+            submitted = st.form_submit_button("Get my breed suggestion")
 
-    with st.chat_message("assistant"):
-        with st.spinner("Finding good breed matches..."):
-            reply = get_breed_reply(messages, use_rag=use_rag, use_scraped_data=use_scraped)
-        st.markdown(reply)
-
-    messages.append({"role": "assistant", "content": reply})
-    st.session_state.conversation = messages
+        # Placeholder "result" logic: purely front-end, no real model yet
+        if submitted:
+            st.success(
+                "Thanks for completing the quiz!"
+            )
+            st.write("Example: You might be a great match for a **Golden Retriever** or **Labrador Retriever** based on your answers.")
