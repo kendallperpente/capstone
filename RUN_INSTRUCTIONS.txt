@@ -1,10 +1,10 @@
-Run and Setup Instructions - Dog Medical Chatbot
+Run and Setup Instructions - Dog Breed Recommender
 -----------------------------------------------
 
 Quick summary:
 - This project is a Streamlit chat UI (`streamlit_app.py`) that can use either the OpenAI API
   directly or a RAG (Retrieval-Augmented Generation) pipeline implemented in `rag_module.py`.
-- Scraped knowledge (Wikipedia dog diseases) is stored in `dog_diseases.json` (produced by `scrapper.py`).
+- Scraped knowledge (Royal Kennel Club dog breeds) is stored in `dog_breeds_rkc.json` (produced by `scrapper.py`).
 
 Prerequisites
 - Python 3.10+ recommended.
@@ -25,12 +25,12 @@ Environment variables
 
    export OPENAI_API_KEY="sk-..."
 
-Run the scraper (optional, creates `dog_diseases.json`)
-- If you want the app to use the scraped Wikipedia knowledge, run the scrapper first to create the JSON file:
+Run the scraper (optional, creates `dog_breeds_rkc.json`)
+- If you want the app to use the scraped breed knowledge, run the scrapper first to create the JSON file:
 
-   python scrapper.py
+  python scrapper.py
 
-- This writes `dog_diseases.json` to the repo root. Keep in mind scraping is slow and should be run responsibly.
+- This writes `dog_breeds_rkc.json` to the repo root. Keep in mind scraping is slow and should be run responsibly.
 
 Start the Streamlit app
 - Run Streamlit from the repo root so relative paths resolve correctly:
@@ -39,22 +39,21 @@ Start the Streamlit app
 
 Using the app
 - In the sidebar:
-  - Choose which dog conversation to use.
   - Check `Use Knowledge Base (RAG)` to enable the RAG pipeline.
-  - If RAG is enabled, you may also check `Use Wikipedia Dog Diseases Data` to attempt loading `dog_diseases.json`.
+  - If RAG is enabled, you may also check `Use Royal Kennel Club Breed Data` to attempt loading `dog_breeds_rkc.json`.
 
 Important runtime notes
-- The RAG pipeline is built in `rag_module.DogHealthRAG`. Building it computes document and query
+- The RAG pipeline is built in `rag_module.DogBreedRAG`. Building it computes document and query
   embeddings and may download models the first time — expect an initial delay and increased memory/disk usage.
 - `get_rag_pipeline()` currently caches a singleton instance. If the pipeline is created before
-  `dog_diseases.json` exists, toggling the checkbox in the UI will not automatically reload the KB. You must
+  `dog_breeds_rkc.json` exists, toggling the checkbox in the UI will not automatically reload the KB. You must
   restart Streamlit to pick up changes, or implement a reload mechanism (see `IMPROVEMENTS_TODO.txt`).
 - Run Streamlit and the scrapper from the same working directory (project root), or update paths in the code.
 - If you plan to deploy, consider pinning dependency versions, adding a Dockerfile, and limiting the
   number/size of embeddings to control costs.
 
 Troubleshooting
-- If the app can't find `dog_diseases.json`, confirm it exists in the current working directory and
+- If the app can't find `dog_breeds_rkc.json`, confirm it exists in the current working directory and
   restart Streamlit if the pipeline was already created.
 - If the embedding model download fails, ensure `sentence-transformers` and `transformers` dependencies
   are correctly installed and the environment has network access.

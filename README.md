@@ -1,17 +1,17 @@
 # Capstone Project
 
-A collection of Python applications including a dog medical chatbot, web scraper, and RAG pipeline.
+A collection of Python applications including a dog breed recommender, web scraper, and RAG pipeline.
 
 ## Applications
 
-### 1. Dog Medical Assistant (`streamlit_app.py`)
-A Streamlit web application that provides educational guidance for dog health questions.
+### 1. Dog Breed Recommender (`streamlit_app.py`)
+A Streamlit web application that recommends dog breeds based on user lifestyle and preferences.
 
 **Features:**
 - Interactive chat interface for multiple dogs
-- Safety notices and emergency vet finder
+- Lifestyle-based breed matching
 - Conversation history and export functionality
-- OpenAI GPT-powered responses
+- OpenAI GPT-powered responses (optional RAG grounding)
 
 **Usage:**
 ```bash
@@ -35,8 +35,8 @@ python scrapper.py
 
 This will create `dog_breeds_rkc.json` with breed data that can be loaded by the RAG pipeline.
 
-### 3. RAG Pipeline (`ragpipeline.py`)
-Retrieval-Augmented Generation pipeline implementation.
+### 3. RAG Pipeline (`rag_module.py`)
+Retrieval-Augmented Generation pipeline for breed recommendations.
 
 **Usage:**
 ```bash
@@ -59,5 +59,4 @@ pip install -r requirements.txt
 
 ## Notes
 
-- The chatbot is for educational purposes only and does not replace professional veterinary care
 - Ensure you have a valid OpenAI API key for the chatbot functionality

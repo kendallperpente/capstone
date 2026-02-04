@@ -13,17 +13,17 @@ Improvements & To-Do - Make the app more ChatGPT-like and robust
    - Show a spinner and success/error messages when rebuilding completes.
 
 3) Surface KB loading status in the UI
-   - At startup, show whether `dog_diseases.json` exists and how many documents are available.
+   - At startup, show whether `dog_breeds_rkc.json` exists and how many documents are available.
    - When RAG is enabled, display a short status message: "RAG: Loaded X docs" or "RAG: Not found".
 
 4) Make paths explicit and robust
-   - Use `Path(__file__).parent` or a config value to locate `dog_diseases.json` to avoid
-     problems when Streamlit is started from a different working directory.
+    - Use `Path(__file__).parent` or a config value to locate `dog_breeds_rkc.json` to avoid
+       problems when Streamlit is started from a different working directory.
 
 5) Add optional on-demand scraping (with caution)
-   - Add a sidebar checkbox and button `Run Scraper (creates dog_diseases.json)` that calls
-     `scrapper.scrape_dog_diseases()` and `save_documents_to_json()`.
-   - Rate-limit and warn the user about scraping policies and performance.
+    - Add a sidebar checkbox and button `Run Scraper (creates dog_breeds_rkc.json)` that calls
+       `scrapper.scrape_dog_breeds()` and `save_documents_to_json()`.
+    - Rate-limit and warn the user about scraping policies and performance.
 
 6) Improve error handling and logging
    - Wrap external calls (OpenAI, Haystack) with clearer error messages.

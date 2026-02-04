@@ -10,27 +10,23 @@ from haystack.dataclasses import ChatMessage
 from haystack.components.generators.chat import OpenAIChatGenerator
 import json
 
-class DogHealthRAG:
+class DogBreedRAG:
     def __init__(self, use_scraped_data=False):
-        """Initialize the RAG pipeline for dog health questions
-        
+        """Initialize the RAG pipeline for dog breed recommendations.
+
         Args:
-            use_scraped_data: If True, load from dog_breeds_rkc.json (from scrapper.py - Royal Kennel Club)
-                             or dog_diseases.json (old Wikipedia scraper - for backwards compatibility)
-                             If False, use the default seven-wonders dataset
+            use_scraped_data: If True, load from dog_breeds_rkc.json (from scrapper.py - Royal Kennel Club).
+                              If False, use a small built-in dataset as a fallback.
         """
         # Document Store
         self.document_store = InMemoryDocumentStore()
         
-        # Load dataset - prioritize Royal Kennel Club data, fall back to old Wikipedia data
+        # Load dataset - prioritize Royal Kennel Club data, fall back to built-in data
         if use_scraped_data:
             data_file = None
             if os.path.exists("dog_breeds_rkc.json"):
                 data_file = "dog_breeds_rkc.json"
                 print("Loading Royal Kennel Club dog breeds data...")
-            elif os.path.exists("dog_diseases.json"):
-                data_file = "dog_diseases.json"
-                print("Loading scraped dog diseases data (Wikipedia)...")
             
             if data_file:
                 with open(data_file, "r") as f:
@@ -47,14 +43,47 @@ class DogHealthRAG:
                     for item in data
                 ]
             else:
-                print("⚠ No scraped data found. Falling back to default dataset.")
+                print("⚠ No scraped data found. Falling back to built-in dataset.")
                 use_scraped_data = False
         
         if not use_scraped_data:
-            print("Loading default dataset...")
-            from datasets import load_dataset
-            dataset = load_dataset("bilgeyucel/seven-wonders", split="train")
-            docs = [Document(content=doc["content"], meta=doc["meta"]) for doc in dataset]
+            print("Loading built-in breed dataset...")
+            fallback_data = [
+                {
+                    "title": "Labrador Retriever",
+                    "content": "Friendly, outgoing, and high-energy. Great for active families and training,"
+                               " needs daily exercise and enjoys retrieving games.",
+                    "source": "Built-in"
+                },
+                {
+                    "title": "Golden Retriever",
+                    "content": "Affectionate, patient, and eager to please. Excellent with kids,"
+                               " requires regular grooming and lots of activity.",
+                    "source": "Built-in"
+                },
+                {
+                    "title": "French Bulldog",
+                    "content": "Compact, calm, and good for apartment living. Moderate exercise needs,"
+                               " sensitive to heat and benefits from short walks.",
+                    "source": "Built-in"
+                },
+                {
+                    "title": "Poodle (Standard)",
+                    "content": "Highly intelligent and trainable. Low-shedding coat but needs regular grooming,"
+                               " enjoys mental and physical activity.",
+                    "source": "Built-in"
+                },
+                {
+                    "title": "Beagle",
+                    "content": "Curious, friendly, and social. Moderate exercise needs,"
+                               " can be vocal and enjoys scent games.",
+                    "source": "Built-in"
+                },
+            ]
+            docs = [
+                Document(content=item["content"], meta={"title": item["title"], "source": item["source"]})
+                for item in fallback_data
+            ]
         
         # Document Embedder
         doc_embedder = SentenceTransformersDocumentEmbedder(model="sentence-transformers/all-MiniLM-L6-v2")
@@ -71,10 +100,10 @@ class DogHealthRAG:
         # Prompt Template
         template = [
             ChatMessage.from_user(
-                """You are a warm, friendly assistant specialized in dog (canine) health and basic first aid.
+                """You are a warm, friendly assistant that recommends dog breeds based on a user's lifestyle.
 
-Given the following information, answer the question. If the information doesn't directly address the question, 
-provide general guidance while emphasizing this is educational only and not a substitute for veterinary care.
+Given the following information, answer the question. If the information doesn't directly address the question,
+ask a brief follow-up and provide a few reasonable options.
 
 Context:
 {% for document in documents %}
@@ -102,7 +131,7 @@ Answer:"""
         self.pipeline.connect("prompt_builder.prompt", "llm.messages")
     
     def answer_question(self, question: str) -> str:
-        """Get an answer to a dog health question using RAG"""
+        """Get a dog breed recommendation using RAG"""
         response = self.pipeline.run({
             "text_embedder": {"text": question},
             "prompt_builder": {"question": question}
@@ -120,5 +149,5 @@ def get_rag_pipeline(use_scraped_data=False):
     """
     global _rag_instance
     if _rag_instance is None:
-        _rag_instance = DogHealthRAG(use_scraped_data=use_scraped_data)
+        _rag_instance = DogBreedRAG(use_scraped_data=use_scraped_data)
     return _rag_instance

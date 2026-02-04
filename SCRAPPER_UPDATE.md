@@ -2,13 +2,13 @@
 
 ## What Changed
 
-The web scrapper has been updated to collect dog breed information from the **Royal Kennel Club** website instead of Wikipedia dog diseases.
+The web scrapper has been updated to collect dog breed information from the **Royal Kennel Club** website.
 
 ## New Data Source
 
 - **URL**: https://www.royalkennelclub.com/search/breeds-a-to-z
-- **Content**: Comprehensive dog breed information including characteristics, health information, and breed standards
-- **Output File**: `dog_breeds_rkc.json` (replaces `dog_diseases.json`)
+- **Content**: Comprehensive dog breed information including characteristics and breed standards
+- **Output File**: `dog_breeds_rkc.json`
 
 ## Updated Files
 
@@ -20,9 +20,8 @@ The web scrapper has been updated to collect dog breed information from the **Ro
 - Limited to 20 breeds by default (configurable via `max_breeds` variable)
 
 ### 2. `rag_module.py`
-- Updated to support both new and old data formats
-- **Priority**: Looks for `dog_breeds_rkc.json` first, falls back to `dog_diseases.json`
-- Backwards compatible with existing Wikipedia data
+- Updated to use breed data from `dog_breeds_rkc.json`
+- Falls back to a small built-in dataset if the file is missing
 
 ### 3. `streamlit_app.py`
 - Updated checkbox label: "Use Royal Kennel Club Dog Breeds Data"
@@ -57,12 +56,9 @@ max_breeds = 20  # Change this value (line ~105)
 
 **Note**: Be respectful when scraping - the current implementation includes delays and limits to avoid overloading the server.
 
-## Backwards Compatibility
+## Fallback Behavior
 
-The system maintains backwards compatibility:
-- If `dog_breeds_rkc.json` exists, it will be used
-- If only `dog_diseases.json` exists, it will be used instead
-- If neither exists, the default dataset is used
+If `dog_breeds_rkc.json` is missing, the app uses a small built-in breed dataset.
 
 ## Data Structure
 

@@ -1,8 +1,7 @@
-# app.py - Dog Medical Chatbot
+# app.py - Dog Breed Recommender
 
 import os
 import datetime
-import urllib.parse
 import streamlit as st
 import openai
 
@@ -11,97 +10,106 @@ st.markdown(
     """
     <style>
     .stApp {
-        background-color: #f8f9fa;
+        background-color: #000000;
+        color: #f9fafb;
     }
-    
-    .stButton > button {
-        background-color: #007bff;
-        color: white;
-        border: none;
-        border-radius: 5px;
-        padding: 0.5rem 1rem;
-        transition: background-color 0.2s;
+
+    /* Typography */
+    h1, h2, h3, h4, h5, h6, p, li, div, span {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        color: #f9fafb;
     }
-    
-    .stButton > button:hover {
-        background-color: #0056b3;
+
+    /* Container width */
+    .block-container {
+        max-width: 820px;
+        padding-top: 2.5rem;
+        padding-bottom: 3rem;
     }
-    
-    .stTextInput > div > div > input {
-        border: 1px solid #ced4da;
-        border-radius: 5px;
-        padding: 0.5rem;
-    }
-    
-    .stTextInput > div > div > input:focus {
-        border-color: #007bff;
-        box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
-    }
-    
+
+    /* Buttons - minimal */
+    .stButton > button,
     .stDownloadButton > button {
-        background-color: #28a745;
-        color: white;
-        border: none;
-        border-radius: 5px;
-        padding: 0.4rem 0.8rem;
+        background: #0b0b0b;
+        color: #f9fafb;
+        border: 1px solid #1f2937;
+        border-radius: 8px;
+        padding: 0.45rem 0.9rem;
+        box-shadow: none;
     }
-    
+
+    .stButton > button:hover,
     .stDownloadButton > button:hover {
-        background-color: #1e7e34;
+        border-color: #374151;
+        background: #111111;
     }
-    
-    h1 {
-        color: #343a40;
-        text-align: center;
-        margin-bottom: 1rem;
+
+    /* Inputs */
+    .stTextInput > div > div > input,
+    .stChatInput > div > div > textarea {
+        border: 1px solid #1f2937;
+        border-radius: 10px;
+        padding: 0.6rem 0.75rem;
+        background: #0b0b0b;
+        color: #f9fafb;
     }
+
+    .stTextInput > div > div > input:focus,
+    .stChatInput > div > div > textarea:focus {
+        border-color: #374151;
+        box-shadow: none;
+    }
+
+    /* Sidebar */
+    section[data-testid="stSidebar"] {
+        background: #0b0b0b;
+        border-right: 1px solid #1f2937;
+    }
+
+    /* Chat message spacing */
+    .stChatMessage {
+        padding: 0.4rem 0;
+    }
+
+    /* Hide Streamlit footer */
+    footer {visibility: hidden;}
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-st.set_page_config(page_title="Dog Medical Chatbot")
+st.set_page_config(page_title="Dog Breed Recommender")
 
-st.title("Dog Medical Assistant")
-st.warning("Non-Emergency Support Only - This does NOT replace a licensed veterinarian")
-st.info("Friendly, educational help for dog health questions")
+st.title("Dog Breed Recommender")
+st.caption("Minimal, chat-first breed matching. Share your lifestyle to get recommendations.")
 
 # OpenAI client will be created in the function with API key
 
 warm_greeting = (
-    "Hi there! Thanks for stopping by.\n\n"
-    "I'm a friendly assistant focused on dog health and everyday care. "
-    "You can tell me what's going on with your pup, and I'll help you think through "
-    "possible causes, things to watch for, and questions you might want to ask a vet.\n\n"
-    "**Important:** I'm not a veterinarian, so I can't give an official diagnosis or "
-    "tell you exactly what treatment to use. If your dog seems very sick, is in a lot "
-    "of pain, or you're worried it might be an emergency, please contact a veterinarian "
-    "or an emergency clinic right away.\n\n"
-    "When you're ready, tell me a bit about your dog (age, breed, weight) and what "
-    "symptoms you're seeing, and we'll go through it together."
+    "Hi! I can help you find dog breeds that match your lifestyle.\n\n"
+    "To get started, share details like your home size, activity level, "
+    "experience with dogs, time for grooming/training, and whether you have kids "
+    "or other pets. I’ll suggest a few breeds and explain why they fit."
 )
 
 SYSTEM_PROMPT = """
-You are a warm, friendly assistant specialized in dog (canine) health and basic first aid.
-You are NOT a veterinarian and cannot diagnose or prescribe treatment.
+You are a warm, friendly assistant that recommends dog breeds based on a user's lifestyle
+and preferences. You are not a veterinarian.
 
 Tone and style:
-- Sound kind, calm, and supportive.
-- Acknowledge that people care deeply about their dogs and may be worried.
-- Use clear, non-technical language first, then optionally add brief clinical details.
-- Keep answers concise but practical, with simple next steps when possible.
+- Sound friendly, practical, and encouraging.
+- Keep answers concise and easy to scan.
+- Prefer bullet points and short paragraphs.
 
 Behavior:
-- Ask for important missing details (age, breed, weight, symptoms, duration, current meds).
-- Emphasize that advice is educational only and does not replace a real vet.
-- For anything serious (e.g. trouble breathing, seizures, inability to stand, severe pain,
-  poisoning, eye injuries, uncontrolled bleeding, collapse), clearly say it might be an
-  emergency and that they should contact an emergency vet or poison control immediately.
-- Never give definitive diagnoses or guarantee outcomes.
-- Never claim to replace professional veterinary care.
+- Ask for missing details (home size, activity level, grooming tolerance, experience,
+  time for training, kids/other pets, allergies, and budget).
+- Recommend 3-5 breeds with brief reasons that map to the user's needs.
+- If unsure, suggest broader categories and ask follow-up questions.
+- Encourage users to research and meet breeds before deciding.
 """
 
-def get_dog_medical_reply(messages, use_rag=False, use_scraped_data=False):
+def get_breed_reply(messages, use_rag=False, use_scraped_data=False):
     try:
         if use_rag:
             # Use RAG pipeline for grounded answers
@@ -121,86 +129,47 @@ def get_dog_medical_reply(messages, use_rag=False, use_scraped_data=False):
     except Exception as e:
         return f"Sorry, I'm having trouble connecting to the AI service. Error: {str(e)}"
 
-if "dog_conversations" not in st.session_state:
-    # Using global warm_greeting variable defined above
-    st.session_state.dog_conversations = {
-        "Dog 1": [{"role": "assistant", "content": warm_greeting}],
-        "Dog 2": [{"role": "assistant", "content": warm_greeting}],
-    }
+if "conversation" not in st.session_state:
+    st.session_state.conversation = [{"role": "assistant", "content": warm_greeting}]
 
 with st.sidebar:
-    st.header("Pet Selection")
-    
-    current_dog = st.selectbox(
-        "Which dog are we talking about?",
-        ["Dog 1", "Dog 2"],
-        help="Each dog has its own saved conversation history.",
-    )
-    
-    st.markdown("---")
     st.header("Settings")
     use_rag = st.checkbox(
         "Use Knowledge Base (RAG)",
-        value=False,
-        help="Uses a knowledge base for more grounded answers. May be slower on first run."
+        value=True,
+        help="Uses a breed knowledge base for grounded suggestions. May be slower on first run."
     )
-    
+
     if use_rag:
         use_scraped = st.checkbox(
-            "Use Royal Kennel Club Dog Breeds Data",
-            value=False,
+            "Use Royal Kennel Club Breed Data",
+            value=True,
             help="Uses data scraped from Royal Kennel Club. Run scrapper.py first to generate dog_breeds_rkc.json"
         )
+        if not os.path.exists("dog_breeds_rkc.json"):
+            st.warning("dog_breeds_rkc.json not found. Suggestions will use a small built-in dataset.")
     else:
         use_scraped = False
 
     st.markdown("---")
-    st.header("Safety Notice")
-    st.write(
-        "- This bot is for **educational purposes only**.\n"
-        "- It does **not** provide diagnoses or prescriptions.\n"
-        "- If your dog is vomiting repeatedly, has trouble breathing, collapses, has a seizure,\n"
-        "  may have eaten something toxic, or seems in severe pain, contact an **emergency vet** immediately."
-    )
-
-    st.markdown("---")
-    st.header("Find Nearby Vets")
-    location_input = st.text_input(
-        "Your city or postal code",
-        placeholder="e.g. Brooklyn, NY or 94103",
-    )
-    
-    search_type = st.radio(
-        "What are you looking for?",
-        ["General vets", "Emergency vets"],
-        horizontal=False
-    )
-    
-    if location_input:
-        query = f"{'emergency ' if search_type == 'Emergency vets' else ''}veterinarian near {location_input}"
-        encoded_query = urllib.parse.quote_plus(query)
-        maps_url = f"https://www.google.com/maps/search/{encoded_query}"
-        st.markdown(f"[Open in Maps]({maps_url})", unsafe_allow_html=True)
-
-    st.markdown("---")
-    conv = st.session_state.dog_conversations[current_dog]
+    conv = st.session_state.conversation
     export_lines = [f"{'You:' if msg['role']=='user' else 'Assistant:'} {msg['content']}" for msg in conv]
     export_str = "\n\n".join(export_lines)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{current_dog.lower().replace(' ', '_')}_chat_{timestamp}.txt"
+    filename = f"breed_chat_{timestamp}.txt"
     st.download_button("Download", export_str, filename, "text/plain")
 
-    if st.button("Clear this dog's conversation"):
-        st.session_state.dog_conversations[current_dog] = [{"role": "assistant", "content": warm_greeting}]
+    if st.button("Clear conversation"):
+        st.session_state.conversation = [{"role": "assistant", "content": warm_greeting}]
         st.rerun()
 
-messages = st.session_state.dog_conversations[current_dog]
+messages = st.session_state.conversation
 
 for msg in messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-user_input = st.chat_input(f"What's going on with {current_dog}?")
+user_input = st.chat_input("Tell me about your lifestyle and what you want in a dog.")
 
 if user_input:
     messages.append({"role": "user", "content": user_input})
@@ -208,9 +177,9 @@ if user_input:
         st.markdown(user_input)
 
     with st.chat_message("assistant"):
-        with st.spinner("Thinking about your dog's symptoms..."):
-            reply = get_dog_medical_reply(messages, use_rag=use_rag, use_scraped_data=use_scraped)
+        with st.spinner("Finding good breed matches..."):
+            reply = get_breed_reply(messages, use_rag=use_rag, use_scraped_data=use_scraped)
         st.markdown(reply)
 
     messages.append({"role": "assistant", "content": reply})
-    st.session_state.dog_conversations[current_dog] = messages
+    st.session_state.conversation = messages
