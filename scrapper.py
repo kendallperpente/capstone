@@ -37,48 +37,49 @@ def scrape_dog_breeds_rkc(base_url="https://www.royalkennelclub.com/search/breed
     
     documents = []  # List to store scraped breed documents
     visited_urls = set()  # Track visited URLs to avoid duplicates
+    breed_data = {}  # Track breed data with related pages: {breed_url: {content, related_pages, ...}}
     
     # HTTP headers to identify as a browser and avoid being blocked
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
     }
     
-    def scrape_breed_page(url):
+    def scrape_page(url, is_related_page=False):
         """
-        Scrape individual breed page from Royal Kennel Club.
+        Scrape a page from Royal Kennel Club (breed page or related page).
         
         Extracts:
-        - Breed name (from h1 tag)
-        - Detailed breed information (from main content area)
-        - Metadata (URL, source)
+        - Title (from h1 tag)
+        - Detailed information (from main content area)
+        - Related/linked URLs (for deeper scraping)
         
         Args:
-            url (str): The full URL of the breed page to scrape
+            url (str): The full URL of the page to scrape
+            is_related_page (bool): Whether this is a related/sub-page
             
         Returns:
-            None (documents are appended to the outer documents list)
+            tuple: (title, content_text, related_urls_list)
         """
-        # Skip if already visited (prevents duplicate processing)
+        # Skip if already visited
         if url in visited_urls:
-            return
+            return None, "", []
         
         visited_urls.add(url)
+        found_urls = []
         
         try:
             print(f"Scraping: {url}")
             
-            # Fetch the page with timeout to handle slow servers
+            # Fetch the page with timeout
             response = requests.get(url, headers=headers, timeout=10)
             soup = BeautifulSoup(response.text, "html.parser")
             
-            # Extract breed name from the h1 tag
+            # Extract title from h1 tag
             title_tag = soup.find("h1")
-            breed_name = title_tag.get_text(strip=True) if title_tag else "Unknown Breed"
+            title = title_tag.get_text(strip=True) if title_tag else "Unknown"
             
-            # Extract main content - try multiple selectors for flexibility
+            # Extract main content
             content_text = ""
-            
-            # Try to find main content area (supports various HTML structures)
             main_content = (
                 soup.find("main") or 
                 soup.find("article") or 
@@ -86,48 +87,65 @@ def scrape_dog_breeds_rkc(base_url="https://www.royalkennelclub.com/search/breed
             )
             
             if main_content:
-                # Remove non-content elements that would clutter the text
+                # Remove unwanted elements
                 for element in main_content(["script", "style", "nav", "footer", "header"]):
                     element.decompose()
                 
-                # Extract paragraphs and text-containing divs
+                # Extract paragraphs
                 paragraphs = main_content.find_all(
                     ["p", "div"], 
                     class_=lambda x: x and "text" in x.lower() if x else False
                 )
                 
-                # Fallback: if no tagged paragraphs found, try all paragraphs
                 if not paragraphs:
                     paragraphs = main_content.find_all("p")
                 
-                # Collect text from paragraphs
+                # Collect text
                 text_parts = []
-                for p in paragraphs[:15]:  # Limit to first 15 paragraphs to keep content focused
+                for p in paragraphs[:15]:
                     text = p.get_text(strip=True)
-                    # Only include substantial paragraphs (>30 chars)
                     if len(text) > 30:
                         text_parts.append(text)
                 
-                # Combine all paragraphs into a single content string
                 content_text = "\n\n".join(text_parts)
+                
+                # Extract related URLs only from main breed pages (not sub-pages)
+                if not is_related_page:
+                    # Find ALL links in the main content, not just in paragraphs
+                    content_links = main_content.find_all("a", href=True)
+                    
+                    for link in content_links:
+                        href = link.get("href")
+                        link_text = link.get_text(strip=True)
+                        
+                        if href and link_text and len(link_text) > 2:  # Avoid single-char links
+                            if not href.startswith("http"):
+                                href = "https://www.royalkennelclub.com" + href
+                            
+                            # Filter out navigation/footer links and visited pages
+                            if ("royalkennelclub.com" in href and 
+                                href not in visited_urls and
+                                "#" not in href and  # Avoid anchor-only links
+                                href != breed_url):  # Avoid self-links
+                                found_urls.append((href, link_text))
+                    
+                    # Remove duplicates while preserving order
+                    seen = set()
+                    unique_found_urls = []
+                    for url, text in found_urls:
+                        if url not in seen:
+                            seen.add(url)
+                            unique_found_urls.append((url, text))
+                    found_urls = unique_found_urls
+                    
+                    if found_urls:
+                        print(f"     → Found {len(found_urls)} related pages")
             
-            # Only create document if we have meaningful content
-            if content_text.strip() and len(content_text) > 100:
-                doc = Document(
-                    content=content_text,
-                    meta={
-                        "title": breed_name,
-                        "url": url,
-                        "source": "Royal Kennel Club"
-                    }
-                )
-                documents.append(doc)
-                print(f"  ✓ Added: {breed_name}")
-            else:
-                print(f"  ⚠ Skipped (insufficient content): {breed_name}")
+            return title, content_text, found_urls
             
         except Exception as e:
             print(f"  ✗ Error scraping {url}: {str(e)}")
+            return None, "", []
     
     
     # ============================================================================
@@ -200,12 +218,54 @@ def scrape_dog_breeds_rkc(base_url="https://www.royalkennelclub.com/search/breed
         
         # Scrape each breed page (limit to prevent overwhelming the server)
         max_breeds = 300  # Highest reasonable limit for comprehensive coverage
-        for i, (url, name) in enumerate(list(unique_links.items())[:max_breeds]):
-            if i > 0:
-                time.sleep(2)  # Respectful delay between requests to the server
-            scrape_breed_page(url)
+        max_related = 100  # Limit related URLs per breed (increased for richer data)
         
-        # Notify user if we hit the limit
+        for i, (breed_url, breed_name) in enumerate(list(unique_links.items())[:max_breeds]):
+            if i > 0:
+                time.sleep(2)  # Respectful delay between requests
+            
+            # Scrape the main breed page
+            title, content, found_urls = scrape_page(breed_url, is_related_page=False)
+            
+            if title and content and len(content) > 100:
+                # Collect content from related pages
+                related_contents = []
+                related_pages = []
+                
+                # Scrape related pages (up to limit)
+                for j, (related_url, related_text) in enumerate(found_urls[:max_related]):
+                    if j > 0:
+                        time.sleep(1)  # Shorter delay for related pages
+                    
+                    rel_title, rel_content, _ = scrape_page(related_url, is_related_page=True)
+                    
+                    if rel_title and rel_content and len(rel_content) > 30:  # Lower threshold for more related page content
+                        related_contents.append(f"\n\n--- {rel_title} ---\n{rel_content}")
+                        related_pages.append({"title": rel_title, "url": related_url})
+                        print(f"  ✓ Added related page: {rel_title}")
+                
+                # Combine main content with related content
+                combined_content = content
+                if related_contents:
+                    combined_content += "".join(related_contents)
+                
+                # Create document with enriched metadata
+                doc = Document(
+                    content=combined_content,
+                    meta={
+                        "title": title,
+                        "url": breed_url,
+                        "source": "Royal Kennel Club",
+                        "related_pages_count": len(related_pages),
+                        "related_pages": related_pages
+                    }
+                )
+                documents.append(doc)
+                print(f"  ✓ Added: {title} (with {len(related_pages)} related pages)")
+            else:
+                print(f"  ⚠ Skipped: {title} (insufficient content)")
+        
+        # Notify user if we hit the breed limit
         if len(unique_links) > max_breeds:
             print(f"\n⚠ Note: Limited to {max_breeds} breeds. Found {len(unique_links)} total.")
             print(f"  To scrape more, increase the 'max_breeds' variable.")
@@ -237,7 +297,9 @@ def save_documents_to_json(documents, filename="dog_breeds_rkc.json"):
             "title": doc.meta.get("title", "Unknown"),
             "content": doc.content,
             "url": doc.meta.get("url", ""),
-            "source": doc.meta.get("source", "Royal Kennel Club")
+            "source": doc.meta.get("source", "Royal Kennel Club"),
+            "related_pages_count": doc.meta.get("related_pages_count", 0),
+            "related_pages": doc.meta.get("related_pages", [])
         }
         for doc in documents
     ]
@@ -249,9 +311,7 @@ def save_documents_to_json(documents, filename="dog_breeds_rkc.json"):
     print(f"\n✓ Saved {len(documents)} breed documents to {filename}")
 
 
-# ============================================================================
 # MAIN EXECUTION
-# ============================================================================
 
 if __name__ == "__main__":
     print("="*60)
