@@ -5,10 +5,9 @@
 ### Expected Output When Run:
 
 ```
-============================================================
+
 DOG BREED SCRAPER - Royal Kennel Club
 Focus: Dog breeds only (no disease data)
-============================================================
 
 Fetching breeds list from: https://www.royalkennelclub.com/search/breeds-a-to-z
 [Connecting to Royal Kennel Club website...]

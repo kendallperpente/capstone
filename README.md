@@ -1,62 +1,136 @@
-# Capstone Project
+# 🐕 Dog Breed Selector - AI-Powered Breed Recommendation System
 
-A collection of Python applications including a dog breed recommender, web scraper, and RAG pipeline.
+## Project Goal
 
-## Applications
+Create an intelligent LLM-based system that helps users find their perfect dog breed match using:
+1. **Characteristic-Based Search**: Users describe desired traits, system recommends matching breeds
+2. **Survey-Based Recommendation**: 11-question quiz about lifestyle generates tailored suggestions
 
-### 1. Dog Breed Recommender (`streamlit_app.py`)
-A Streamlit web application that recommends dog breeds based on user lifestyle and preferences.
+Both leverage a **Retrieval-Augmented Generation (RAG) pipeline** combining semantic search with LLM intelligence.
 
-**Features:**
-- Interactive chat interface for multiple dogs
-- Lifestyle-based breed matching
-- Conversation history and export functionality
-- OpenAI GPT-powered responses (optional RAG grounding)
+---
 
-**Usage:**
-```bash
-pip install -r requirements.txt
-streamlit run streamlit_app.py
-```
+## System Architecture
 
-### 2. Web Scraper (`scrapper.py`)
-A web scraping tool that collects dog breed information from the Royal Kennel Club website.
+### 1. **Web Scraper** (`scrapper.py`)
+Collects dog breed information from the Royal Kennel Club website.
 
-**Features:**
-- Scrapes breed information from https://www.royalkennelclub.com/search/breeds-a-to-z
-- Extracts detailed breed descriptions and characteristics
-- Saves data to JSON format for use with the RAG pipeline
+- Scrapes all breeds from https://www.royalkennelclub.com/search/breeds-a-to-z
+- Extracts breed names, descriptions, and characteristics
+- Saves to `dog_breeds_rkc.json` (300+ breeds)
 - Respectful scraping with delays between requests
 
-**Usage:**
 ```bash
 python scrapper.py
 ```
 
-This will create `dog_breeds_rkc.json` with breed data that can be loaded by the RAG pipeline.
+### 2. **RAG Pipeline Module** (`rag_module.py`)
+Implements Retrieval-Augmented Generation for personalized recommendations.
 
-### 3. RAG Pipeline (`rag_module.py`)
-Retrieval-Augmented Generation pipeline for breed recommendations.
+**Components:**
+- Document Store (in-memory breed database)
+- Embeddings (Sentence Transformers for semantic search)
+- Retriever (finds relevant breeds)
+- Prompt Builder (constructs context-aware prompts)
+- LLM (OpenAI GPT-4o-mini generates responses)
 
 **Usage:**
-```bash
-python ragpipeline.py
+```python
+from rag_module import get_rag_pipeline
+rag = get_rag_pipeline(use_scraped_data=True)
+answer = rag.answer_question("I need a dog good with kids and low energy")
+print(answer)
 ```
 
-## Requirements
+### 3. **Streamlit Web Application** (`streamlit_app.py`)
+Interactive user interface with two parallel recommendation methods.
 
-Install dependencies:
+**Left Panel: Search by Characteristics**
+- Free-text input for desired traits
+- Instant AI-powered recommendations
+- Shows top breed matches with explanations
+
+**Right Panel: Quiz-Based Selection**
+- 11-question survey on lifestyle, space, experience, preferences
+- Generates comprehensive profile
+- Delivers tailored breed matches
+
+**Data Management**
+- Auto-detects scraped breed data
+- Offers fresh scraping from Royal Kennel Club
+- Shows data source attribution
+- Pipeline reload controls
+
 ```bash
-pip install -r requirements.txt
+export OPENAI_API_KEY='your-key'
+streamlit run streamlit_app.py
 ```
 
-## Setup
+---
 
-1. Clone the repository
-2. Install dependencies: `pip install -r requirements.txt`
-3. Set OpenAI API key: `export OPENAI_API_KEY=your_api_key`
-4. Run any application as shown above
+## Quick Start
 
-## Notes
+1. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-- Ensure you have a valid OpenAI API key for the chatbot functionality
+2. **Set OpenAI API key:**
+   ```bash
+   export OPENAI_API_KEY='sk-your-actual-key'
+   ```
+
+3. **Run the app:**
+   ```bash
+   streamlit run streamlit_app.py
+   ```
+
+4. **Open browser to:** `http://localhost:8501`
+
+5. **(Optional) Scrape fresh data:**
+   ```bash
+   python scrapper.py
+   ```
+
+---
+
+## File Structure
+
+```
+├── streamlit_app.py          # Web UI (2 recommendation methods)
+├── rag_module.py             # RAG pipeline (embeddings + LLM)
+├── scrapper.py               # Royal Kennel Club web scraper
+├── dog_breeds_rkc.json       # Breed database (generated)
+├── requirements.txt          # Dependencies
+└── README.md                 # This file
+```
+
+---
+
+## Features
+
+✅ Dual input methods (characteristics + quiz)  
+✅ RAG-powered recommendations (semantic + LLM)  
+✅ Fresh data scraping from Royal Kennel Club  
+✅ Fallback support (built-in 5-breed dataset)  
+✅ Well-documented code  
+✅ User-friendly Streamlit interface  
+
+---
+
+## Troubleshooting
+
+**"OpenAI API error"**: Set `export OPENAI_API_KEY='sk-your-key'`  
+**"No scraped data found"**: Use app's "Scrape Data" button or run `python scrapper.py`  
+**Low recommendation quality**: Ensure you have 300+ breeds (not fallback dataset)
+
+---
+
+## Dependencies
+
+- streamlit (UI)
+- openai (GPT API)
+- haystack-ai (RAG framework)
+- sentence-transformers (embeddings)
+- requests, beautifulsoup4 (web scraping)
+- datasets (utilities)
