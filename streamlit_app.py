@@ -1,7 +1,11 @@
 import streamlit as st
 import os
 import json
+
+# All scraping logic lives in scrapper.py — single source of truth
 from scrapper import scrape_dog_breeds_rkc, save_documents_to_json
+
+# RAG pipeline lives in rag_module.py
 from rag_module import get_rag_pipeline
 
 # ============================================================================
@@ -250,7 +254,9 @@ def init_rag(has_scraped_data: bool) -> bool:
 
     with st.spinner("🔄 Initialising AI recommendation system…"):
         try:
-            st.session_state.rag_pipeline = get_rag_pipeline(use_scraped_data=has_scraped_data)
+            st.session_state.rag_pipeline = get_rag_pipeline(
+                use_scraped_data=has_scraped_data
+            )
             st.session_state.scraped_data_loaded = has_scraped_data
             return True
         except ValueError as e:
@@ -270,16 +276,16 @@ def init_rag(has_scraped_data: bool) -> bool:
 # DATA SOURCE SETTINGS
 # ============================================================================
 
-data_file = "dog_breeds_rkc.json"
-has_scraped_data = os.path.exists(data_file)
+DATA_FILE = "dog_breeds_rkc.json"
+has_scraped_data = os.path.exists(DATA_FILE)
 
 with st.expander("⚙️  Data source settings", expanded=False):
     if has_scraped_data:
-        with open(data_file, "r") as f:
+        with open(DATA_FILE, "r") as f:
             data = json.load(f)
         st.markdown(
             f'<span class="status-badge status-ok">✓ Royal Kennel Club — {len(data)} breeds loaded</span>',
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
         col1, col2 = st.columns(2)
         with col1:
@@ -288,7 +294,8 @@ with st.expander("⚙️  Data source settings", expanded=False):
                     try:
                         docs = scrape_dog_breeds_rkc()
                         if docs:
-                            save_documents_to_json(docs, data_file)
+                            # filename= matches scrapper.save_documents_to_json signature
+                            save_documents_to_json(docs, filename=DATA_FILE)
                             st.session_state.scraped_data_loaded = False
                             st.session_state.rag_pipeline = None
                             st.success(f"✓ Scraped {len(docs)} breeds successfully!")
@@ -305,14 +312,14 @@ with st.expander("⚙️  Data source settings", expanded=False):
     else:
         st.markdown(
             '<span class="status-badge status-warn">⚠ No scraped data — using 5-breed fallback</span>',
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
         if st.button("🌐 Scrape Royal Kennel Club data", type="primary"):
             with st.spinner("Scraping from Royal Kennel Club… this may take a minute."):
                 try:
                     docs = scrape_dog_breeds_rkc()
                     if docs:
-                        save_documents_to_json(docs, data_file)
+                        save_documents_to_json(docs, filename=DATA_FILE)
                         st.session_state.rag_pipeline = None
                         st.session_state.scraped_data_loaded = False
                         st.success(f"✓ Scraped {len(docs)} breeds!")
@@ -342,7 +349,6 @@ with left_col:
     </div>
     """, unsafe_allow_html=True)
 
-    # Small spacing trick — render the card as background then overlay widgets
     st.markdown("<div style='height:0.8rem'></div>", unsafe_allow_html=True)
 
     characteristics = st.text_input(
@@ -364,7 +370,9 @@ with left_col:
                             f"I'm looking for a dog with these characteristics: {characteristics}. "
                             "What breeds would be the best match for me?"
                         )
-                        st.session_state.search_result = st.session_state.rag_pipeline.answer_question(question)
+                        st.session_state.search_result = (
+                            st.session_state.rag_pipeline.answer_question(question)
+                        )
                     except Exception as e:
                         st.error(f"Error getting recommendation: {e}")
                         st.session_state.search_result = None
@@ -372,9 +380,12 @@ with left_col:
     if st.session_state.search_result:
         st.markdown(
             f'<div class="result-box">{st.session_state.search_result}</div>',
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
-        source_label = "Royal Kennel Club data" if st.session_state.scraped_data_loaded else "built-in dataset"
+        source_label = (
+            "Royal Kennel Club data" if st.session_state.scraped_data_loaded
+            else "built-in dataset"
+        )
         st.caption(f"Based on {source_label}")
 
 # ============================================================================
@@ -403,19 +414,21 @@ with right_col:
         st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
 
         with st.form("breed_quiz", border=False):
-            q1 = st.radio("1. Living space", ["Small house", "Large house", "Flat / apartment", "Other"])
-            q2 = st.radio("2. Preferred size", ["Small", "Small-medium", "Medium", "Large", "Extra large", "No preference"])
-            q3 = st.radio("3. Grooming commitment", ["Daily", "Once a week", "A few times a week", "Less than once a week"])
-            q4 = st.radio("4. Shedding tolerance", ["I'd rather avoid shedding", "Shedding is fine", "No preference"])
-            q5 = st.radio("5. Coat length preference", ["Short", "Medium", "Long", "No preference"])
-            q6 = st.radio("6. Daily exercise available", ["30 min or less", "~1 hour", "~2 hours", "More than 2 hours"])
-            q7 = st.radio("7. Other animals at home", ["None", "Other dogs", "Cats", "Multiple animals"])
-            q8 = st.radio("8. Children at home", ["Yes", "No", "Unsure"])
-            q9 = st.radio("9. Dog ownership experience", ["None", "Very little", "Some", "A lot", "Very experienced"])
-            q10 = st.radio("10. Preferred dog type", ["Toy", "Hound", "Working", "Gundog", "Pastoral", "Utility", "No preference"])
-            q11 = st.radio("11. Preferred lifespan", ["Shorter (under 8 yrs)", "Medium (8–12 yrs)", "Longer (12+ yrs)", "No preference"])
+            q1  = st.radio("1. Living space",           ["Small house", "Large house", "Flat / apartment", "Other"])
+            q2  = st.radio("2. Preferred size",         ["Small", "Small-medium", "Medium", "Large", "Extra large", "No preference"])
+            q3  = st.radio("3. Grooming commitment",    ["Daily", "Once a week", "A few times a week", "Less than once a week"])
+            q4  = st.radio("4. Shedding tolerance",     ["I'd rather avoid shedding", "Shedding is fine", "No preference"])
+            q5  = st.radio("5. Coat length preference", ["Short", "Medium", "Long", "No preference"])
+            q6  = st.radio("6. Daily exercise available", ["30 min or less", "~1 hour", "~2 hours", "More than 2 hours"])
+            q7  = st.radio("7. Other animals at home",  ["None", "Other dogs", "Cats", "Multiple animals"])
+            q8  = st.radio("8. Children at home",       ["Yes", "No", "Unsure"])
+            q9  = st.radio("9. Dog ownership experience", ["None", "Very little", "Some", "A lot", "Very experienced"])
+            q10 = st.radio("10. Preferred dog type",    ["Toy", "Hound", "Working", "Gundog", "Pastoral", "Utility", "No preference"])
+            q11 = st.radio("11. Preferred lifespan",    ["Shorter (under 8 yrs)", "Medium (8–12 yrs)", "Longer (12+ yrs)", "No preference"])
 
-            submitted = st.form_submit_button("Get my recommendations →", use_container_width=True, type="primary")
+            submitted = st.form_submit_button(
+                "Get my recommendations →", use_container_width=True, type="primary"
+            )
 
         if submitted:
             if init_rag(has_scraped_data):
@@ -438,7 +451,9 @@ LIFESTYLE PROFILE:
 
 Please recommend the 2–3 best breed matches with explanations for why they suit this lifestyle."""
 
-                        st.session_state.quiz_result = st.session_state.rag_pipeline.answer_question(profile_question)
+                        st.session_state.quiz_result = (
+                            st.session_state.rag_pipeline.answer_question(profile_question)
+                        )
                     except Exception as e:
                         st.error(f"Error getting recommendation: {e}")
                         st.session_state.quiz_result = None
@@ -446,7 +461,10 @@ Please recommend the 2–3 best breed matches with explanations for why they sui
     if st.session_state.quiz_result:
         st.markdown(
             f'<div class="result-box">{st.session_state.quiz_result}</div>',
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
-        source_label = "Royal Kennel Club data" if st.session_state.scraped_data_loaded else "built-in dataset"
+        source_label = (
+            "Royal Kennel Club data" if st.session_state.scraped_data_loaded
+            else "built-in dataset"
+        )
         st.caption(f"Based on {source_label}")
