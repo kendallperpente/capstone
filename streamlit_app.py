@@ -1,470 +1,483 @@
+"""
+streamlit_app.py — Dog Breed Selector Streamlit App
+====================================================
+Pages: Home | Breed Finder | Match Me | Chat | Terminology
+
+Chat page uses RAG pipeline (OpenAI/GPT) with SQLite fallback if RAG fails.
+"""
+
+import sqlite3
+from typing import List, Dict, Any
+
 import streamlit as st
-import os
-import json
-
-# All scraping logic lives in scrapper.py — single source of truth
-from scrapper import scrape_dog_breeds_rkc, save_documents_to_json
-
-# RAG pipeline lives in rag_module.py
 from rag_module import get_rag_pipeline
 
-# ============================================================================
-# PAGE CONFIGURATION
-# ============================================================================
+DB_PATH = "dog_breeds.db"
 
-st.set_page_config(
-    page_title="Dog Breed Selector",
-    page_icon="🐾",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
 
-# ============================================================================
-# CUSTOM CSS — warm, nature-inspired design with earthy tones
-# ============================================================================
+# ---------------------------
+# DB HELPERS
+# ---------------------------
+def get_connection():
+    return sqlite3.connect(DB_PATH)
 
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500&display=swap');
 
-/* ── Root Variables ─────────────────────────────────────── */
-:root {
-    --cream:    #FAF6EF;
-    --warm-tan: #E8D9C0;
-    --bark:     #8B6343;
-    --deep-bark:#5C3D1E;
-    --moss:     #6B7C5C;
-    --rust:     #C4622D;
-    --text:     #2E1F0F;
-    --muted:    #7A6552;
-    --card-bg:  #FFFFFF;
-    --shadow:   0 4px 24px rgba(92,61,30,0.10);
-    --radius:   14px;
-}
+def search_breeds(
+    size: str | None = None,
+    exercise: str | None = None,
+    temperament_keywords: List[str] | None = None,
+    limit: int = 10,
+) -> List[Dict[str, Any]]:
+    conn = get_connection()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
 
-/* ── Global Reset ───────────────────────────────────────── */
-html, body, [class*="css"] {
-    font-family: 'DM Sans', sans-serif;
-    background-color: var(--cream) !important;
-    color: var(--text);
-}
+    where = []
+    params: list[Any] = []
 
-/* ── Header ─────────────────────────────────────────────── */
-.app-header {
-    text-align: center;
-    padding: 2.5rem 1rem 1rem;
-    margin-bottom: 1rem;
-}
-.app-header h1 {
-    font-family: 'Playfair Display', serif;
-    font-size: 3rem;
-    font-weight: 700;
-    color: var(--deep-bark);
-    margin: 0;
-    line-height: 1.15;
-    letter-spacing: -0.5px;
-}
-.app-header p {
-    color: var(--muted);
-    font-size: 1.05rem;
-    font-weight: 300;
-    margin-top: 0.5rem;
-}
-.paw-divider {
-    font-size: 1.4rem;
-    letter-spacing: 0.5rem;
-    color: var(--warm-tan);
-    margin: 0.5rem 0 1.5rem;
-}
+    if size and size != "Any":
+        where.append("size = ?")
+        params.append(size)
 
-/* ── Cards ──────────────────────────────────────────────── */
-.card {
-    background: var(--card-bg);
-    border-radius: var(--radius);
-    padding: 1.8rem 2rem;
-    box-shadow: var(--shadow);
-    border: 1px solid var(--warm-tan);
-    height: 100%;
-}
-.card h3 {
-    font-family: 'Playfair Display', serif;
-    font-size: 1.4rem;
-    color: var(--deep-bark);
-    margin-bottom: 0.3rem;
-}
-.card .card-sub {
-    color: var(--muted);
-    font-size: 0.88rem;
-    margin-bottom: 1.2rem;
-}
+    if exercise and exercise != "Any":
+        where.append("exercise = ?")
+        params.append(exercise)
 
-/* ── Result Box ─────────────────────────────────────────── */
-.result-box {
-    background: linear-gradient(135deg, #FFF8F0 0%, #FDF3E7 100%);
-    border: 1.5px solid var(--warm-tan);
-    border-left: 4px solid var(--bark);
-    border-radius: var(--radius);
-    padding: 1.4rem 1.6rem;
-    margin-top: 1.2rem;
-    font-size: 0.97rem;
-    line-height: 1.7;
-    color: var(--text);
-}
-.result-box strong {
-    color: var(--deep-bark);
-}
+    if temperament_keywords:
+        for kw in temperament_keywords:
+            where.append("temperament LIKE ?")
+            params.append(f"%{kw}%")
 
-/* ── Status Badge ───────────────────────────────────────── */
-.status-badge {
-    display: inline-block;
-    padding: 0.3rem 0.9rem;
-    border-radius: 999px;
-    font-size: 0.8rem;
-    font-weight: 500;
-    margin-bottom: 1rem;
-}
-.status-ok   { background: #EAF2E8; color: #3A6B35; border: 1px solid #B5D5B0; }
-.status-warn { background: #FEF3E2; color: #855700; border: 1px solid #F5D08A; }
+    where_clause = " WHERE " + " AND ".join(where) if where else ""
+    query = (
+        "SELECT title, size, exercise, temperament, overview, lifespan, breed_group "
+        "FROM breeds"
+        + where_clause
+        + " LIMIT ?"
+    )
+    params.append(limit)
 
-/* ── Streamlit Widget Overrides ─────────────────────────── */
-div[data-testid="stTextInput"] input,
-div[data-testid="stSelectbox"] select {
-    background: #FFFDF9 !important;
-    border: 1.5px solid var(--warm-tan) !important;
-    border-radius: 8px !important;
-    color: var(--text) !important;
-    font-family: 'DM Sans', sans-serif !important;
-}
-div[data-testid="stTextInput"] input:focus {
-    border-color: var(--bark) !important;
-    box-shadow: 0 0 0 3px rgba(139,99,67,0.12) !important;
-}
+    rows = cur.execute(query, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
-/* Primary buttons */
-div[data-testid="stButton"] > button[kind="primary"],
-div[data-testid="stFormSubmitButton"] > button {
-    background: var(--bark) !important;
-    color: #fff !important;
-    border: none !important;
-    border-radius: 8px !important;
-    font-family: 'DM Sans', sans-serif !important;
-    font-weight: 500 !important;
-    padding: 0.55rem 1.4rem !important;
-    transition: background 0.2s, transform 0.1s !important;
-}
-div[data-testid="stButton"] > button[kind="primary"]:hover,
-div[data-testid="stFormSubmitButton"] > button:hover {
-    background: var(--deep-bark) !important;
-    transform: translateY(-1px) !important;
-}
 
-/* Secondary buttons */
-div[data-testid="stButton"] > button[kind="secondary"] {
-    background: transparent !important;
-    color: var(--bark) !important;
-    border: 1.5px solid var(--bark) !important;
-    border-radius: 8px !important;
-    font-family: 'DM Sans', sans-serif !important;
-    font-weight: 500 !important;
-    transition: all 0.2s !important;
-}
-div[data-testid="stButton"] > button[kind="secondary"]:hover {
-    background: var(--warm-tan) !important;
-}
+def search_breeds_by_text(query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    conn = get_connection()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
 
-/* Radio buttons */
-div[data-testid="stRadio"] label {
-    font-size: 0.93rem !important;
-    color: var(--text) !important;
-}
+    like = f"%{query}%"
+    rows = cur.execute(
+        """
+        SELECT
+            title,
+            size,
+            exercise,
+            temperament,
+            overview,
+            lifespan,
+            breed_group,
+            full_text
+        FROM breeds
+        WHERE
+            title       LIKE ?
+            OR temperament LIKE ?
+            OR overview    LIKE ?
+            OR full_text   LIKE ?
+        LIMIT ?
+        """,
+        (like, like, like, like, limit),
+    ).fetchall()
 
-/* Expander */
-div[data-testid="stExpander"] {
-    background: var(--card-bg) !important;
-    border: 1px solid var(--warm-tan) !important;
-    border-radius: var(--radius) !important;
-}
+    conn.close()
+    return [dict(r) for r in rows]
 
-/* Spinner */
-div[data-testid="stSpinner"] {
-    color: var(--bark) !important;
-}
 
-/* Divider */
-hr {
-    border-color: var(--warm-tan) !important;
-    margin: 1.5rem 0 !important;
-}
-
-/* Caption */
-div[data-testid="stCaptionContainer"] {
-    color: var(--muted) !important;
-    font-size: 0.8rem !important;
-}
-
-/* Warning / success / error messages */
-div[data-testid="stAlert"] {
-    border-radius: 10px !important;
-    font-size: 0.9rem !important;
-}
-
-/* Column gap */
-div[data-testid="column"] { padding: 0 0.6rem !important; }
-</style>
-""", unsafe_allow_html=True)
-
-# ============================================================================
-# SESSION STATE INITIALIZATION
-# ============================================================================
-
-if "show_quiz" not in st.session_state:
-    st.session_state.show_quiz = False
-if "rag_pipeline" not in st.session_state:
-    st.session_state.rag_pipeline = None
-if "scraped_data_loaded" not in st.session_state:
-    st.session_state.scraped_data_loaded = False
-if "search_result" not in st.session_state:
-    st.session_state.search_result = None
-if "quiz_result" not in st.session_state:
-    st.session_state.quiz_result = None
-
-# ============================================================================
-# HEADER
-# ============================================================================
-
-st.markdown("""
-<div class="app-header">
-    <h1>🐾 Dog Breed Selector</h1>
-    <div class="paw-divider">· · ·</div>
-    <p>Discover your perfect four-legged companion with AI-powered recommendations</p>
-</div>
-""", unsafe_allow_html=True)
-
-# ============================================================================
-# HELPER: Initialize RAG pipeline with clean error handling
-# ============================================================================
-
-def init_rag(has_scraped_data: bool) -> bool:
-    """
-    Initialize the RAG pipeline into session state.
-    Returns True on success, False on failure (error already shown).
-    """
-    if st.session_state.rag_pipeline is not None:
-        return True
-
-    with st.spinner("🔄 Initialising AI recommendation system…"):
-        try:
-            st.session_state.rag_pipeline = get_rag_pipeline(
-                use_scraped_data=has_scraped_data
-            )
-            st.session_state.scraped_data_loaded = has_scraped_data
-            return True
-        except ValueError as e:
-            st.error(f"**API Key Error:** {e}")
-            st.info(
-                "**How to fix:**\n"
-                "1. Get your key from https://platform.openai.com/account/api-keys\n"
-                "2. Run in your terminal: `export OPENAI_API_KEY='sk-proj-your-key'`\n"
-                "3. Restart Streamlit: `streamlit run streamlit_app.py`"
-            )
-            return False
-        except Exception as e:
-            st.error(f"**Unexpected error:** {e}")
-            return False
-
-# ============================================================================
-# DATA SOURCE SETTINGS
-# ============================================================================
-
-DATA_FILE = "dog_breeds_rkc.json"
-has_scraped_data = os.path.exists(DATA_FILE)
-
-with st.expander("⚙️  Data source settings", expanded=False):
-    if has_scraped_data:
-        with open(DATA_FILE, "r") as f:
-            data = json.load(f)
-        st.markdown(
-            f'<span class="status-badge status-ok">✓ Royal Kennel Club — {len(data)} breeds loaded</span>',
-            unsafe_allow_html=True,
+def format_sqlite_results(matches: List[Dict[str, Any]]) -> str:
+    """Format SQLite results into a readable string for the chat."""
+    lines = ["Here are some breeds from the database that might fit:\n"]
+    for b in matches:
+        title = b.get("title", "Unknown breed")
+        size = b.get("size", "N/A")
+        exercise = b.get("exercise", "N/A")
+        lifespan = b.get("lifespan", "") or "N/A"
+        group = b.get("breed_group", "") or "N/A"
+        overview = b.get("overview", "") or b.get("temperament", "") or ""
+        snippet = overview[:280] + ("…" if len(overview) > 280 else "")
+        lines.append(
+            f"- **{title}** — Size: {size} | Exercise: {exercise} | "
+            f"Lifespan: {lifespan} | Group: {group}\n  {snippet}"
         )
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🔄 Refresh scraped data", use_container_width=True):
-                with st.spinner("Scraping fresh breed data from Royal Kennel Club…"):
-                    try:
-                        docs = scrape_dog_breeds_rkc()
-                        if docs:
-                            # filename= matches scrapper.save_documents_to_json signature
-                            save_documents_to_json(docs, filename=DATA_FILE)
-                            st.session_state.scraped_data_loaded = False
-                            st.session_state.rag_pipeline = None
-                            st.success(f"✓ Scraped {len(docs)} breeds successfully!")
-                            st.rerun()
-                        else:
-                            st.error("Scraping returned no results. Try again later.")
-                    except Exception as e:
-                        st.error(f"Scraping error: {e}")
-        with col2:
-            if st.button("♻️ Reload RAG pipeline", use_container_width=True):
-                st.session_state.rag_pipeline = None
-                st.session_state.scraped_data_loaded = False
-                st.success("Pipeline will reload on your next search.")
+    return "\n\n".join(lines)
+
+
+# ---------------------------
+# PAGE CONFIG
+# ---------------------------
+# ---------------------------
+import traceback
+import streamlit as st
+
+st.set_page_config(page_title="Dog Breed Selector", layout="wide")
+
+# ---------------------------
+# SIDEBAR
+# ---------------------------
+with st.sidebar:
+    st.title("🐕 Menu")
+
+    page = st.radio("Go to", PAGES, index=PAGES.index(st.session_state.page))
+    st.session_state.page = page
+
+    st.divider()
+
+    if st.session_state.get("rag_available"):
+        st.success("✅ AI pipeline ready")
     else:
-        st.markdown(
-            '<span class="status-badge status-warn">⚠ No scraped data — using 5-breed fallback</span>',
-            unsafe_allow_html=True,
-        )
-        if st.button("🌐 Scrape Royal Kennel Club data", type="primary"):
-            with st.spinner("Scraping from Royal Kennel Club… this may take a minute."):
-                try:
-                    docs = scrape_dog_breeds_rkc()
-                    if docs:
-                        save_documents_to_json(docs, filename=DATA_FILE)
-                        st.session_state.rag_pipeline = None
-                        st.session_state.scraped_data_loaded = False
-                        st.success(f"✓ Scraped {len(docs)} breeds!")
-                        st.rerun()
-                    else:
-                        st.error("Scraping returned no results. Please try again later.")
-                except Exception as e:
-                    st.error(f"Scraping error: {e}")
+        st.warning("⚠️ AI pipeline unavailable — Chat will use DB search only")
+        if "rag_error" in st.session_state:
+            with st.expander("Error details"):
+                st.code(st.session_state.rag_error)
 
-st.markdown("---")
+    st.divider()
 
-# ============================================================================
-# MAIN LAYOUT — two columns
-# ============================================================================
+    st.markdown("**Tips**")
+    st.write("- Use *Breed Finder* to filter breeds from your scraped DB.")
+    st.write("- Use *Match Me* for a lifestyle‑based quiz.")
+    st.write("- Use *Chat* to ask free‑form questions.")
 
-left_col, right_col = st.columns(2, gap="large")
 
-# ============================================================================
-# LEFT COLUMN: Search by characteristics
-# ============================================================================
+# ---------------------------
+# HOME
+# ---------------------------
+def show_home():
+    st.title("🐶 Dog Breed Selector (RKC Scraper Edition)")
+    st.write(
+        """
+        This app uses data scraped from the Royal Kennel Club, stored in
+        `dog_breeds_rkc.json` and loaded into `dog_breeds.db`.
 
-with left_col:
-    st.markdown("""
-    <div class="card">
-        <h3>🔍 Search by characteristics</h3>
-        <p class="card-sub">Describe what you're looking for and we'll find your match</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("<div style='height:0.8rem'></div>", unsafe_allow_html=True)
-
-    characteristics = st.text_input(
-        "What are you looking for?",
-        placeholder="e.g. high energy, good with kids, low shedding, apartment-friendly…",
-        label_visibility="collapsed",
+        - **Breed Finder**: filter breeds directly from the database.
+        - **Match Me**: lifestyle quiz → suggested breeds.
+        """
     )
 
-    search_clicked = st.button("Find my breeds →", type="primary", use_container_width=True)
-
-    if search_clicked:
-        if not characteristics.strip():
-            st.warning("Please enter some characteristics first.")
-        else:
-            if init_rag(has_scraped_data):
-                with st.spinner("🐾 Finding your best matches…"):
-                    try:
-                        question = (
-                            f"I'm looking for a dog with these characteristics: {characteristics}. "
-                            "What breeds would be the best match for me?"
-                        )
-                        st.session_state.search_result = (
-                            st.session_state.rag_pipeline.answer_question(question)
-                        )
-                    except Exception as e:
-                        st.error(f"Error getting recommendation: {e}")
-                        st.session_state.search_result = None
-
-    if st.session_state.search_result:
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("Data pipeline")
         st.markdown(
-            f'<div class="result-box">{st.session_state.search_result}</div>',
-            unsafe_allow_html=True,
+            """
+            1. `scrapper.py` → `dog_breeds_rkc.json`
+            2. `create_db.py` → `dog_breeds.db`
+            3. This app reads from `dog_breeds.db` and `dog_breeds_rkc.json`
+            """
         )
-        source_label = (
-            "Royal Kennel Club data" if st.session_state.scraped_data_loaded
-            else "built-in dataset"
+    with col2:
+        st.subheader("Before running")
+        st.markdown(
+            """
+            - Set `OPENAI_API_KEY` environment variable
+            - Run `python scrapper.py`
+            - Then `python create_db.py`
+            - Confirm `dog_breeds.db` is in the project root
+            """
         )
-        st.caption(f"Based on {source_label}")
 
-# ============================================================================
-# RIGHT COLUMN: Quiz
-# ============================================================================
 
-with right_col:
-    st.markdown("""
-    <div class="card">
-        <h3>📋 Lifestyle quiz</h3>
-        <p class="card-sub">Answer a few questions for a personalised recommendation</p>
-    </div>
-    """, unsafe_allow_html=True)
+# ---------------------------
+# BREED FINDER
+# ---------------------------
+def show_breed_finder():
+    st.title("🔎 Breed Finder")
+    st.write("Filter scraped RKC breeds by high‑level traits.")
 
-    st.markdown("<div style='height:0.8rem'></div>", unsafe_allow_html=True)
+    size = st.selectbox(
+        "Preferred size",
+        ["Any", "Small", "Medium", "Large", "Giant"],
+    )
+    exercise = st.selectbox(
+        "Exercise requirement",
+        ["Any", "Low", "Moderate", "High"],
+    )
+    temp_keywords_str = st.text_input(
+        "Temperament keywords (optional, comma‑separated)",
+        placeholder="e.g., friendly, calm, confident",
+    )
 
-    if st.button(
-        "Hide quiz ↑" if st.session_state.show_quiz else "Take the quiz ↓",
-        type="primary",
-        use_container_width=True,
-    ):
-        st.session_state.show_quiz = not st.session_state.show_quiz
+    if st.button("Find breeds"):
+        temperament_keywords = (
+            [t.strip() for t in temp_keywords_str.split(",") if t.strip()]
+            if temp_keywords_str
+            else []
+        )
+        try:
+            results = search_breeds(
+                size=size if size != "Any" else None,
+                exercise=exercise if exercise != "Any" else None,
+                temperament_keywords=temperament_keywords,
+                limit=20,
+            )
+        except Exception as e:
+            st.error(f"Error querying database: {e}")
+            return
+
+        if not results:
+            st.info("No breeds found that match those filters.")
+            return
+
+        st.subheader(f"Found {len(results)} breeds")
+        for b in results:
+            with st.expander(b["title"], expanded=False):
+                st.write(f"**Size:** {b.get('size') or 'N/A'}")
+                st.write(f"**Exercise:** {b.get('exercise') or 'N/A'}")
+                st.write(f"**Lifespan:** {b.get('lifespan') or 'N/A'}")
+                st.write(f"**Breed group:** {b.get('breed_group') or 'N/A'}")
+                st.write(f"**Temperament:** {b.get('temperament') or 'N/A'}")
+                overview = b.get("overview") or ""
+                if overview:
+                    st.markdown("---")
+                    st.write("**Overview (from RKC):**")
+                    st.write(overview)
+
+
+# ---------------------------
+# MATCH ME
+# ---------------------------
+def show_match_me():
+    st.title("🎯 Match Me")
+    st.write("Answer a few questions and we'll suggest breeds from your scraped DB.")
+
+    with st.form("match_me_quiz"):
+        st.subheader("Your living situation")
+        home_type = st.selectbox(
+            "What type of home do you live in?",
+            ["Apartment", "Small house", "Large house", "Farm or rural property"],
+        )
+        outdoor_space = st.selectbox(
+            "Outdoor space available",
+            [
+                "No yard",
+                "Small shared yard",
+                "Private small yard",
+                "Large yard or land",
+            ],
+        )
+
+        st.subheader("Time and activity")
+        exercise_time = st.selectbox(
+            "How much time per day can you dedicate to exercise?",
+            ["< 30 minutes", "30–60 minutes", "1–2 hours", "2+ hours"],
+        )
+        activity_level = st.selectbox(
+            "How active are you generally?",
+            ["Prefer calm walks", "Moderately active", "Very active (running/hiking)"],
+        )
+
+        st.subheader("Experience & family")
+        dog_experience = st.selectbox(
+            "Your dog experience",
+            ["First‑time owner", "Some experience", "Very experienced"],
+        )
+        kids = st.radio(
+            "Children in the household?",
+            ["No children", "Young children", "Older children/teens"],
+        )
+
+        allergies = st.checkbox("Someone in the household has dog allergies")
+
+        submitted = st.form_submit_button("Get my matches")
+
+    if not submitted:
+        return
+
+    st.subheader("Suggested breeds (using DB filters)")
+
+    # Map quiz answers to DB filters
+    if home_type == "Apartment":
+        size_pref = "Small"
+    elif home_type == "Small house":
+        size_pref = "Medium"
+    else:
+        size_pref = None
+
+    if exercise_time in ["< 30 minutes", "30–60 minutes"] and activity_level == "Prefer calm walks":
+        exercise_pref = "Low"
+    elif exercise_time in ["30–60 minutes", "1–2 hours"] and activity_level != "Very active (running/hiking)":
+        exercise_pref = "Moderate"
+    else:
+        exercise_pref = "High"
+
+    temperament_keywords: List[str] = []
+if kids != "No children":
+    temperament_keywords += ["good with children", "gentle", "friendly", "family"]
+if dog_experience == "First‑time owner":
+    temperament_keywords += ["easy to train", "trainable", "eager"]
+if allergies:
+    temperament_keywords += ["low shedding", "hypoallergenic", "non-shedding"]
+
+    try:
+        matches = search_breeds(
+            size=size_pref,
+            exercise=exercise_pref,
+            temperament_keywords=temperament_keywords,
+            limit=10,
+        )
+    except Exception as e:
+        st.error(f"Error querying database: {e}")
+        return
+
+    if not matches:
+        st.info(
+            "No clear matches from the quiz mapping. "
+            "Try relaxing constraints or using Breed Finder."
+        )
+        return
+
+    for b in matches:
+        with st.expander(b["title"], expanded=False):
+            st.write(f"**Size:** {b.get('size') or 'N/A'}")
+            st.write(f"**Exercise:** {b.get('exercise') or 'N/A'}")
+            st.write(f"**Lifespan:** {b.get('lifespan') or 'N/A'}")
+            st.write(f"**Breed group:** {b.get('breed_group') or 'N/A'}")
+            st.write(f"**Temperament:** {b.get('temperament') or 'N/A'}")
+            overview = b.get("overview") or ""
+            if overview:
+                st.markdown("---")
+                st.write("**Overview (from RKC):**")
+                st.write(overview)
+
+
+# ---------------------------
+# CHAT
+# ---------------------------
+def show_chat():
+    st.title("💬 Chat — Ask anything about dog breeds")
+
+    rag_available = st.session_state.get("rag_available", False)
+
+    if rag_available:
+        st.info("")
+    else:
+        st.warning("⚠️ AI unavailable — using database search only.")
+
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+
+    user_input = st.text_input(
+        "Ask a question",
+        placeholder="e.g., give me a big dog that is friendly",
+        key="chat_input",
+    )
+
+    col_send, col_clear = st.columns([1, 1])
+    with col_send:
+        send = st.button("Send")
+    with col_clear:
+        clear = st.button("Clear chat")
+
+    if clear:
+        st.session_state.chat_history = []
         st.rerun()
 
-    if st.session_state.show_quiz:
-        st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+    if send and user_input:
+        answer = None
 
-        with st.form("breed_quiz", border=False):
-            q1  = st.radio("1. Living space",           ["Small house", "Large house", "Flat / apartment", "Other"])
-            q2  = st.radio("2. Preferred size",         ["Small", "Small-medium", "Medium", "Large", "Extra large", "No preference"])
-            q3  = st.radio("3. Grooming commitment",    ["Daily", "Once a week", "A few times a week", "Less than once a week"])
-            q4  = st.radio("4. Shedding tolerance",     ["I'd rather avoid shedding", "Shedding is fine", "No preference"])
-            q5  = st.radio("5. Coat length preference", ["Short", "Medium", "Long", "No preference"])
-            q6  = st.radio("6. Daily exercise available", ["30 min or less", "~1 hour", "~2 hours", "More than 2 hours"])
-            q7  = st.radio("7. Other animals at home",  ["None", "Other dogs", "Cats", "Multiple animals"])
-            q8  = st.radio("8. Children at home",       ["Yes", "No", "Unsure"])
-            q9  = st.radio("9. Dog ownership experience", ["None", "Very little", "Some", "A lot", "Very experienced"])
-            q10 = st.radio("10. Preferred dog type",    ["Toy", "Hound", "Working", "Gundog", "Pastoral", "Utility", "No preference"])
-            q11 = st.radio("11. Preferred lifespan",    ["Shorter (under 8 yrs)", "Medium (8–12 yrs)", "Longer (12+ yrs)", "No preference"])
+        # ── Try RAG pipeline first ────────────────────────────────────────
+        if rag_available and st.session_state.rag_pipeline is not None:
+            try:
+                with st.spinner("Thinking..."):
+                    answer = st.session_state.rag_pipeline.answer_question(user_input)
+            except Exception as e:
+                st.warning(f"AI pipeline error: {e} — falling back to database search.")
+                answer = None
 
-            submitted = st.form_submit_button(
-                "Get my recommendations →", use_container_width=True, type="primary"
-            )
+        # ── Fallback: SQLite text search ──────────────────────────────────
+        if answer is None:
+            try:
+                matches = search_breeds_by_text(user_input, limit=5)
+                if matches:
+                    answer = format_sqlite_results(matches)
+                else:
+                    answer = (
+                        "I couldn't find any strong matches in the database for that description. "
+                        "Try different words (e.g., 'large friendly family dog')."
+                    )
+            except Exception as e:
+                answer = f"Sorry, both the AI pipeline and database search failed. Error: {e}"
 
-        if submitted:
-            if init_rag(has_scraped_data):
-                with st.spinner("🐾 Analysing your profile…"):
-                    try:
-                        profile_question = f"""Based on this person's profile, what dog breeds would be the best match?
+        st.session_state.chat_history.append(("You", user_input))
+        st.session_state.chat_history.append(("Assistant", answer))
 
-LIFESTYLE PROFILE:
-- Living space: {q1}
-- Preferred size: {q2}
-- Grooming frequency: {q3}
-- Shedding tolerance: {q4}
-- Coat length preference: {q5}
-- Daily exercise available: {q6}
-- Other animals: {q7}
-- Children: {q8}
-- Dog experience: {q9}
-- Dog type preference: {q10}
-- Desired lifespan: {q11}
+    # ── Render conversation ───────────────────────────────────────────────
+    if st.session_state.chat_history:
+        st.subheader("Conversation")
+        for speaker, msg in st.session_state.chat_history:
+            if speaker == "You":
+                st.markdown(f"**You:** {msg}")
+            else:
+                st.markdown(msg)
+                st.markdown("---")
 
-Please recommend the 2–3 best breed matches with explanations for why they suit this lifestyle."""
 
-                        st.session_state.quiz_result = (
-                            st.session_state.rag_pipeline.answer_question(profile_question)
-                        )
-                    except Exception as e:
-                        st.error(f"Error getting recommendation: {e}")
-                        st.session_state.quiz_result = None
+# ---------------------------
+# TERMINOLOGY
+# ---------------------------
+def show_terminology():
+    st.title("📚 Dog Terminology")
+    st.write("Expand the sections to learn key dog‑related terms.")
 
-    if st.session_state.quiz_result:
-        st.markdown(
-            f'<div class="result-box">{st.session_state.quiz_result}</div>',
-            unsafe_allow_html=True,
+    with st.expander("Breed Groups"):
+        st.write("Groups of breeds with similar historical roles or traits.")
+        st.write("- **Hound Group** – traditionally used for hunting by scent or sight.")
+        st.write("- **Working Group** – strong breeds used for guarding and labor.")
+        st.write("- **Toy Group** – small companion dogs.")
+        st.write("- **Gundog / Sporting Group** – dogs bred to work closely with hunters.")
+
+    with st.expander("Exercise Requirement"):
+        st.write("How much activity a dog needs daily.")
+        st.write("- **Low** – short walks and light play.")
+        st.write("- **Moderate** – one or two substantial walks per day.")
+        st.write("- **High** – several hours of vigorous activity daily.")
+
+    with st.expander("Temperament Descriptors"):
+        st.write("- **Family‑friendly** – often patient and tolerant with children.")
+        st.write("- **Independent** – may be less eager to please, more self‑directed.")
+        st.write("- **High‑drive** – very motivated to work, may need jobs or sports.")
+
+    with st.expander("Grooming Terms"):
+        st.write("- **Double‑coated** – dense undercoat with longer outer coat; sheds seasonally.")
+        st.write(
+            "- **Hypoallergenic (informal)** – often used for breeds that shed less "
+            "and may be better tolerated by some allergy sufferers."
         )
-        source_label = (
-            "Royal Kennel Club data" if st.session_state.scraped_data_loaded
-            else "built-in dataset"
-        )
-        st.caption(f"Based on {source_label}")
+
+    with st.expander("Size Categories"):
+        st.write("- **Toy** – typically under 5 kg.")
+        st.write("- **Small** – roughly 5–10 kg.")
+        st.write("- **Medium** – roughly 10–25 kg.")
+        st.write("- **Large** – roughly 25–45 kg.")
+        st.write("- **Giant** – over 45 kg.")
+
+
+# ---------------------------
+# MAIN ROUTER
+# ---------------------------
+def main():
+    page = st.session_state.page
+    if page == "Home":
+        show_home()
+    elif page == "Breed Finder":
+        show_breed_finder()
+    elif page == "Match Me":
+        show_match_me()
+    elif page == "Chat":
+        show_chat()
+    elif page == "Terminology":
+        show_terminology()
+    else:
+        show_home()
+
+
+if __name__ == "__main__":
+    main()

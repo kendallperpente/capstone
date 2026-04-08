@@ -2,8 +2,7 @@
 rag_module.py — RAG pipeline for dog breed recommendations
 ===========================================================
 Imported by:  streamlit_app.py  (as `from rag_module import get_rag_pipeline`)
-              dog_breed_pipeline.py (as `from rag import get_rag_pipeline`)
-              → rag.py is a one-line shim that re-exports from here.
+              run_batch_qa.py
 """
 
 import os
@@ -66,6 +65,46 @@ FALLBACK_BREEDS: List[dict] = [
         ),
         "source": "Built-in",
     },
+    {
+        "title": "German Shepherd",
+        "content": (
+            "Loyal, confident, and highly intelligent. Excellent working dog and family protector, "
+            "needs plenty of exercise and mental stimulation."
+        ),
+        "source": "Built-in",
+    },
+    {
+        "title": "Bulldog",
+        "content": (
+            "Calm, courageous, and friendly. Low exercise needs, good for apartments, "
+            "prone to breathing issues due to flat face."
+        ),
+        "source": "Built-in",
+    },
+    {
+        "title": "Siberian Husky",
+        "content": (
+            "Energetic, mischievous, and loyal. Bred for cold climates, "
+            "needs lots of exercise and has a thick double coat."
+        ),
+        "source": "Built-in",
+    },
+    {
+        "title": "Rottweiler",
+        "content": (
+            "Loyal, loving, and confident guardian. Powerful and protective, "
+            "requires firm training and regular exercise."
+        ),
+        "source": "Built-in",
+    },
+    {
+        "title": "Border Collie",
+        "content": (
+            "Extremely intelligent and energetic. Originally bred for herding sheep in Scotland, "
+            "needs a job to do and lots of mental and physical stimulation."
+        ),
+        "source": "Built-in",
+    },
 ]
 
 # ---------------------------------------------------------------------------
@@ -80,7 +119,7 @@ class DogBreedRAG:
     ----------
     use_scraped_data : bool
         If True, load breed data from ``dog_breeds_rkc.json``.
-        Falls back to the built-in 5-breed dataset if the file is missing.
+        Falls back to the built-in dataset if the file is missing.
     data_file : str
         Path to the scraped JSON file (default: ``dog_breeds_rkc.json``).
     """
@@ -144,7 +183,7 @@ class DogBreedRAG:
             model="sentence-transformers/all-MiniLM-L6-v2"
         )
 
-        # ── Retriever — top 5 so we always have multiple breed candidates ─
+        # ── Retriever ────────────────────────────────────────────────────
         self.retriever = InMemoryEmbeddingRetriever(
             self.document_store,
             top_k=5,
@@ -212,7 +251,7 @@ def get_rag_pipeline(
 ) -> DogBreedRAG:
     """
     Create and return a new DogBreedRAG instance.
-    Caching across Streamlit reruns is handled by ``st.session_state``
+    Caching across Streamlit reruns is handled by st.session_state
     in streamlit_app.py — do not cache here.
     """
     return DogBreedRAG(use_scraped_data=use_scraped_data, data_file=data_file)
