@@ -6,6 +6,7 @@ Pages: Home | Breed Finder | Match Me | Chat | Terminology
 Chat page uses RAG pipeline (OpenAI/GPT) with SQLite fallback if RAG fails.
 """
 
+import os
 import sqlite3
 from typing import List, Dict, Any
 
@@ -121,6 +122,33 @@ import streamlit as st
 
 st.set_page_config(page_title="Dog Breed Selector", layout="wide")
 
+# Define pages
+PAGES = ["Home", "Breed Finder", "Match Me", "Chat", "Terminology"]
+
+# Initialize session state
+if "page" not in st.session_state:
+    st.session_state.page = "Home"
+if "rag_pipeline" not in st.session_state:
+    st.session_state.rag_pipeline = None
+if "rag_available" not in st.session_state:
+    st.session_state.rag_available = False
+if "openai_api_key" not in st.session_state:
+    st.session_state.openai_api_key = os.getenv("OPENAI_API_KEY", "")
+# Initialize RAG pipeline if API key is available
+def initialize_rag_pipeline():
+    """Initialize the RAG pipeline with the provided API key."""
+    if st.session_state.openai_api_key and st.session_state.rag_pipeline is None:
+        try:
+            st.session_state.rag_pipeline = get_rag_pipeline(api_key=st.session_state.openai_api_key)
+            st.session_state.rag_available = True
+            st.session_state.rag_error = None
+        except Exception as e:
+            st.session_state.rag_available = False
+            st.session_state.rag_error = str(e)
+
+# Try to initialize RAG pipeline on first run
+initialize_rag_pipeline()
+
 # ---------------------------
 # SIDEBAR
 # ---------------------------
@@ -132,13 +160,42 @@ with st.sidebar:
 
     st.divider()
 
+    # ── OpenAI API Key Configuration ──────────────────────────────────────
+    st.subheader("🔑 OpenAI Configuration")
+    
+    with st.expander("Set API Key", expanded=not st.session_state.openai_api_key):
+        api_key_input = st.text_input(
+            "OpenAI API Key",
+            value=st.session_state.openai_api_key,
+            type="password",
+            placeholder="sk-proj-...",
+            help="Your OpenAI API key (keep this private)"
+        )
+        
+        if api_key_input != st.session_state.openai_api_key:
+            st.session_state.openai_api_key = api_key_input
+            # Reset RAG pipeline so it gets reinitialized with the new key
+            st.session_state.rag_pipeline = None
+            st.session_state.rag_available = False
+            st.rerun()
+        
+        if st.button("🔄 Reinitialize Pipeline", key="reinit_btn"):
+            st.session_state.rag_pipeline = None
+            st.session_state.rag_available = False
+            initialize_rag_pipeline()
+            st.rerun()
+
+    st.divider()
+
     if st.session_state.get("rag_available"):
         st.success("✅ AI pipeline ready")
     else:
         st.warning("⚠️ AI pipeline unavailable — Chat will use DB search only")
-        if "rag_error" in st.session_state:
+        if "rag_error" in st.session_state and st.session_state.rag_error:
             with st.expander("Error details"):
                 st.code(st.session_state.rag_error)
+        elif not st.session_state.openai_api_key:
+            st.caption("💡 Add your OpenAI API key above to enable AI features")
 
     st.divider()
 
@@ -309,12 +366,12 @@ def show_match_me():
         exercise_pref = "High"
 
     temperament_keywords: List[str] = []
-if kids != "No children":
-    temperament_keywords += ["good with children", "gentle", "friendly", "family"]
-if dog_experience == "First‑time owner":
-    temperament_keywords += ["easy to train", "trainable", "eager"]
-if allergies:
-    temperament_keywords += ["low shedding", "hypoallergenic", "non-shedding"]
+    if kids != "No children":
+        temperament_keywords += ["good with children", "gentle", "friendly", "family"]
+    if dog_experience == "First‑time owner":
+        temperament_keywords += ["easy to train", "trainable", "eager"]
+    if allergies:
+        temperament_keywords += ["low shedding", "hypoallergenic", "non-shedding"]
 
     try:
         matches = search_breeds(
