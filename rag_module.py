@@ -3,11 +3,17 @@ rag_module.py — RAG pipeline for dog breed recommendations
 ===========================================================
 Imported by:  streamlit_app.py  (as `from rag_module import get_rag_pipeline`)
               run_batch_qa.py
+
+CHANGES:
+- DogBreedRAG.__init__ now accepts an optional `api_key` parameter.
+  The Streamlit app passes the key entered in the sidebar; this fix ensures
+  it actually reaches the OpenAI client instead of being silently ignored.
+- get_rag_pipeline() and reload_rag_pipeline() both forward api_key.
 """
 
 import os
 import json
-from typing import List
+from typing import List, Optional
 
 from haystack.document_stores.in_memory import InMemoryDocumentStore
 from haystack import Document, Pipeline
@@ -122,20 +128,30 @@ class DogBreedRAG:
         Falls back to the built-in dataset if the file is missing.
     data_file : str
         Path to the scraped JSON file (default: ``dog_breeds_rkc.json``).
+    api_key : str, optional
+        OpenAI API key. If provided, takes precedence over the OPENAI_API_KEY
+        environment variable. This is the key entered in the Streamlit sidebar.
     """
 
     def __init__(
         self,
         use_scraped_data: bool = False,
         data_file: str = "dog_breeds_rkc.json",
+        api_key: Optional[str] = None,
     ):
-        # ── Validate API key ─────────────────────────────────────────────
-        api_key = os.getenv("OPENAI_API_KEY", "").strip()
-        if not api_key or api_key.startswith("your-key"):
+        # ── Resolve and validate API key ─────────────────────────────────
+        # Prefer the explicitly-passed key (from Streamlit sidebar),
+        # fall back to the environment variable.
+        resolved_key = (api_key or os.getenv("OPENAI_API_KEY", "")).strip()
+        if not resolved_key or resolved_key.startswith("your-key"):
             raise ValueError(
                 "OPENAI_API_KEY not set or invalid. "
-                "Set it with: export OPENAI_API_KEY='sk-proj-your-actual-key'"
+                "Either set it with: export OPENAI_API_KEY='sk-proj-your-actual-key' "
+                "or enter it in the Streamlit sidebar."
             )
+        # Write it back to the environment so Haystack's OpenAIChatGenerator
+        # picks it up automatically (it reads os.environ internally).
+        os.environ["OPENAI_API_KEY"] = resolved_key
 
         # ── Load documents ───────────────────────────────────────────────
         docs: List[Document] = []
@@ -248,18 +264,39 @@ RESPONSE:"""
 def get_rag_pipeline(
     use_scraped_data: bool = False,
     data_file: str = "dog_breeds_rkc.json",
+    api_key: Optional[str] = None,
 ) -> DogBreedRAG:
     """
     Create and return a new DogBreedRAG instance.
+
+    Parameters
+    ----------
+    use_scraped_data : bool
+        Load from dog_breeds_rkc.json if True, else use built-in fallback.
+    data_file : str
+        Path to the scraped JSON.
+    api_key : str, optional
+        OpenAI API key. Passed through from the Streamlit sidebar so the
+        user-entered key is actually used rather than silently ignored.
+
     Caching across Streamlit reruns is handled by st.session_state
     in streamlit_app.py — do not cache here.
     """
-    return DogBreedRAG(use_scraped_data=use_scraped_data, data_file=data_file)
+    return DogBreedRAG(
+        use_scraped_data=use_scraped_data,
+        data_file=data_file,
+        api_key=api_key,
+    )
 
 
 def reload_rag_pipeline(
     use_scraped_data: bool = False,
     data_file: str = "dog_breeds_rkc.json",
+    api_key: Optional[str] = None,
 ) -> DogBreedRAG:
     """Force-create a fresh pipeline instance (convenience alias)."""
-    return DogBreedRAG(use_scraped_data=use_scraped_data, data_file=data_file)
+    return DogBreedRAG(
+        use_scraped_data=use_scraped_data,
+        data_file=data_file,
+        api_key=api_key,
+    )
