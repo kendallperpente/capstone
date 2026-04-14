@@ -4,6 +4,14 @@ streamlit_app.py — Dog Breed Selector Streamlit App
 Pages: Home | Breed Finder | Match Me | Chat | Terminology
 
 Chat page uses RAG pipeline (OpenAI/GPT) with SQLite fallback if RAG fails.
+
+CHANGES vs original:
+- search_breeds() now queries the exercise_normalized column (Low/Moderate/High)
+  instead of the raw RKC verbose string, so Match Me filters actually return rows.
+- show_match_me() exercise mapping now uses the same Low/Moderate/High tokens.
+- Breed Finder exercise selectbox options match those tokens too.
+- initialize_rag_pipeline() passes st.session_state.openai_api_key to
+  get_rag_pipeline() so the sidebar key is actually forwarded to OpenAI.
 """
 
 import os
@@ -19,16 +27,25 @@ DB_PATH = "dog_breeds.db"
 # ---------------------------
 # DB HELPERS
 # ---------------------------
+
 def get_connection():
     return sqlite3.connect(DB_PATH)
 
 
 def search_breeds(
     size: str | None = None,
-    exercise: str | None = None,
+    exercise: str | None = None,       # Low / Moderate / High
     temperament_keywords: List[str] | None = None,
     limit: int = 10,
 ) -> List[Dict[str, Any]]:
+    """
+    Query the breeds table.
+
+    `exercise` should be one of: "Low", "Moderate", "High".
+    These match the exercise_normalized column that create_db.py populates.
+    The raw RKC strings ("Up to 1 hour per day") are stored in the `exercise`
+    column but are never used for filtering here.
+    """
     conn = get_connection()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
@@ -41,7 +58,8 @@ def search_breeds(
         params.append(size)
 
     if exercise and exercise != "Any":
-        where.append("exercise = ?")
+        # Filter on the normalised column, not the raw RKC string.
+        where.append("exercise_normalized = ?")
         params.append(exercise)
 
     if temperament_keywords:
@@ -51,7 +69,8 @@ def search_breeds(
 
     where_clause = " WHERE " + " AND ".join(where) if where else ""
     query = (
-        "SELECT title, size, exercise, temperament, overview, lifespan, breed_group "
+        "SELECT title, size, exercise, exercise_normalized, temperament, "
+        "overview, lifespan, breed_group "
         "FROM breeds"
         + where_clause
         + " LIMIT ?"
@@ -99,13 +118,13 @@ def format_sqlite_results(matches: List[Dict[str, Any]]) -> str:
     """Format SQLite results into a readable string for the chat."""
     lines = ["Here are some breeds from the database that might fit:\n"]
     for b in matches:
-        title = b.get("title", "Unknown breed")
-        size = b.get("size", "N/A")
+        title    = b.get("title", "Unknown breed")
+        size     = b.get("size", "N/A")
         exercise = b.get("exercise", "N/A")
         lifespan = b.get("lifespan", "") or "N/A"
-        group = b.get("breed_group", "") or "N/A"
+        group    = b.get("breed_group", "") or "N/A"
         overview = b.get("overview", "") or b.get("temperament", "") or ""
-        snippet = overview[:280] + ("…" if len(overview) > 280 else "")
+        snippet  = overview[:280] + ("…" if len(overview) > 280 else "")
         lines.append(
             f"- **{title}** — Size: {size} | Exercise: {exercise} | "
             f"Lifespan: {lifespan} | Group: {group}\n  {snippet}"
@@ -116,16 +135,12 @@ def format_sqlite_results(matches: List[Dict[str, Any]]) -> str:
 # ---------------------------
 # PAGE CONFIG
 # ---------------------------
-# ---------------------------
 import traceback
-import streamlit as st
 
 st.set_page_config(page_title="Dog Breed Selector", layout="wide")
 
-# Define pages
 PAGES = ["Home", "Breed Finder", "Match Me", "Chat", "Terminology"]
 
-# Initialize session state
 if "page" not in st.session_state:
     st.session_state.page = "Home"
 if "rag_pipeline" not in st.session_state:
@@ -134,20 +149,25 @@ if "rag_available" not in st.session_state:
     st.session_state.rag_available = False
 if "openai_api_key" not in st.session_state:
     st.session_state.openai_api_key = os.getenv("OPENAI_API_KEY", "")
-# Initialize RAG pipeline if API key is available
+
+
 def initialize_rag_pipeline():
     """Initialize the RAG pipeline with the provided API key."""
     if st.session_state.openai_api_key and st.session_state.rag_pipeline is None:
         try:
-            st.session_state.rag_pipeline = get_rag_pipeline(api_key=st.session_state.openai_api_key)
+            # Pass the sidebar key explicitly — rag_module now accepts it.
+            st.session_state.rag_pipeline = get_rag_pipeline(
+                api_key=st.session_state.openai_api_key
+            )
             st.session_state.rag_available = True
             st.session_state.rag_error = None
         except Exception as e:
             st.session_state.rag_available = False
             st.session_state.rag_error = str(e)
 
-# Try to initialize RAG pipeline on first run
+
 initialize_rag_pipeline()
+
 
 # ---------------------------
 # SIDEBAR
@@ -160,27 +180,25 @@ with st.sidebar:
 
     st.divider()
 
-    # ── OpenAI API Key Configuration ──────────────────────────────────────
     st.subheader("🔑 OpenAI Configuration")
-    
+
     with st.expander("Set API Key", expanded=not st.session_state.openai_api_key):
         api_key_input = st.text_input(
             "OpenAI API Key",
             value=st.session_state.openai_api_key,
             type="password",
             placeholder="sk-proj-...",
-            help="Your OpenAI API key (keep this private)"
+            help="Your OpenAI API key (keep this private)",
         )
-        
+
         if api_key_input != st.session_state.openai_api_key:
             st.session_state.openai_api_key = api_key_input
-            # Reset RAG pipeline so it gets reinitialized with the new key
-            st.session_state.rag_pipeline = None
-            st.session_state.rag_available = False
+            st.session_state.rag_pipeline   = None
+            st.session_state.rag_available  = False
             st.rerun()
-        
+
         if st.button("🔄 Reinitialize Pipeline", key="reinit_btn"):
-            st.session_state.rag_pipeline = None
+            st.session_state.rag_pipeline  = None
             st.session_state.rag_available = False
             initialize_rag_pipeline()
             st.rerun()
@@ -213,7 +231,8 @@ def show_home():
     st.write(
         """
         This app uses data scraped from the Royal Kennel Club, stored in
-        `dog_breeds_rkc.json` and loaded into `dog_breeds.db`.
+        `dog_breeds_rkc.json`, structured by `extract_dbdata.py` into
+        `DBdata.json`, and loaded into `dog_breeds.db` by `create_db.py`.
 
         - **Breed Finder**: filter breeds directly from the database.
         - **Match Me**: lifestyle quiz → suggested breeds.
@@ -226,18 +245,20 @@ def show_home():
         st.markdown(
             """
             1. `scrapper.py` → `dog_breeds_rkc.json`
-            2. `create_db.py` → `dog_breeds.db`
-            3. This app reads from `dog_breeds.db` and `dog_breeds_rkc.json`
+            2. `extract_dbdata.py` → `DBdata.json`
+            3. `create_db.py` → `dog_breeds.db`
+            4. This app reads from `dog_breeds.db`
             """
         )
     with col2:
         st.subheader("Before running")
         st.markdown(
             """
-            - Set `OPENAI_API_KEY` environment variable
             - Run `python scrapper.py`
+            - Then `python extract_dbdata.py`
             - Then `python create_db.py`
             - Confirm `dog_breeds.db` is in the project root
+            - Add your OpenAI key in the sidebar for AI chat
             """
         )
 
@@ -253,6 +274,7 @@ def show_breed_finder():
         "Preferred size",
         ["Any", "Small", "Medium", "Large", "Giant"],
     )
+    # Options match the exercise_normalized values stored by create_db.py
     exercise = st.selectbox(
         "Exercise requirement",
         ["Any", "Low", "Moderate", "High"],
@@ -350,7 +372,7 @@ def show_match_me():
 
     st.subheader("Suggested breeds (using DB filters)")
 
-    # Map quiz answers to DB filters
+    # ── Map quiz answers to size ───────────────────────────────────────────
     if home_type == "Apartment":
         size_pref = "Small"
     elif home_type == "Small house":
@@ -358,9 +380,15 @@ def show_match_me():
     else:
         size_pref = None
 
+    # ── Map quiz answers to exercise_normalized tokens ────────────────────
+    # These must match the values in the exercise_normalized column:
+    # "Low", "Moderate", or "High".
     if exercise_time in ["< 30 minutes", "30–60 minutes"] and activity_level == "Prefer calm walks":
         exercise_pref = "Low"
-    elif exercise_time in ["30–60 minutes", "1–2 hours"] and activity_level != "Very active (running/hiking)":
+    elif (
+        exercise_time in ["30–60 minutes", "1–2 hours"]
+        and activity_level != "Very active (running/hiking)"
+    ):
         exercise_pref = "Moderate"
     else:
         exercise_pref = "High"
@@ -413,9 +441,7 @@ def show_chat():
 
     rag_available = st.session_state.get("rag_available", False)
 
-    if rag_available:
-        st.info("")
-    else:
+    if not rag_available:
         st.warning("⚠️ AI unavailable — using database search only.")
 
     if "chat_history" not in st.session_state:
@@ -493,9 +519,9 @@ def show_terminology():
 
     with st.expander("Exercise Requirement"):
         st.write("How much activity a dog needs daily.")
-        st.write("- **Low** – short walks and light play.")
-        st.write("- **Moderate** – one or two substantial walks per day.")
-        st.write("- **High** – several hours of vigorous activity daily.")
+        st.write("- **Low** – short walks and light play (up to ~1 hour).")
+        st.write("- **Moderate** – one or two substantial walks per day (1–2 hours).")
+        st.write("- **High** – several hours of vigorous activity daily (2+ hours).")
 
     with st.expander("Temperament Descriptors"):
         st.write("- **Family‑friendly** – often patient and tolerant with children.")
