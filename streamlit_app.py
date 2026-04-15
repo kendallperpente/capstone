@@ -1,566 +1,545 @@
-"""
-streamlit_app.py — Dog Breed Selector Streamlit App
-====================================================
-Pages: Home | Breed Finder | Match Me | Chat | Terminology
-
-Chat page uses RAG pipeline (OpenAI/GPT) with SQLite fallback if RAG fails.
-
-CHANGES vs original:
-- search_breeds() now queries the exercise_normalized column (Low/Moderate/High)
-  instead of the raw RKC verbose string, so Match Me filters actually return rows.
-- show_match_me() exercise mapping now uses the same Low/Moderate/High tokens.
-- Breed Finder exercise selectbox options match those tokens too.
-- initialize_rag_pipeline() passes st.session_state.openai_api_key to
-  get_rag_pipeline() so the sidebar key is actually forwarded to OpenAI.
-"""
-
-import os
-import sqlite3
-from typing import List, Dict, Any
-
 import streamlit as st
-from rag_module import get_rag_pipeline
+import requests
 
-DB_PATH = "dog_breeds.db"
+# ---------------------------
+# PAGE CONFIGURATION
+# ---------------------------
+st.set_page_config(page_title="Dog Breed Selector", layout="centered")
+
+# ---------------------------
+# CUSTOM STYLING
+# Injects CSS to style the app shell, sidebar nav items,
+# cards, buttons, and topbar. The sidebar nav mimics the
+# icon + label pattern used in modern chat UIs.
+# ---------------------------
+st.markdown("""
+<style>
+
+/* --- App background --- */
+.stApp {
+    background-color: #f6faf7;
+}
+
+/* --- Hide default Streamlit sidebar nav radio widget --- */
+div[data-testid="stSidebarNav"] { display: none; }
+
+/* --- Sidebar background --- */
+section[data-testid="stSidebar"] {
+    background-color: #eaf4ee;
+}
+
+/* --- Nav item base style --- */
+.nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #555;
+    margin-bottom: 4px;
+    transition: background 0.15s;
+    text-decoration: none;
+}
+
+.nav-item:hover {
+    background-color: #ffffff;
+    color: #111;
+}
+
+/* --- Active nav item --- */
+.nav-item.active {
+    background-color: #ffffff;
+    color: #2f5d50;
+    font-weight: 600;
+    border: 0.5px solid #d0e8dc;
+}
+
+/* --- Sidebar logo block --- */
+.sidebar-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px 20px;
+}
+
+.sidebar-logo .dot {
+    width: 30px;
+    height: 30px;
+    background: #2f5d50;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 16px;
+}
+
+.sidebar-logo span {
+    font-size: 14px;
+    font-weight: 600;
+    color: #2f5d50;
+}
+
+/* --- Page topbar --- */
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 0 18px;
+    border-bottom: 1px solid #ddeee5;
+    margin-bottom: 20px;
+}
+
+.topbar h2 {
+    margin: 0;
+    font-size: 18px;
+    color: #2f5d50;
+}
+
+.topbar .badge {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 99px;
+    background: #d4f0e2;
+    color: #1a6645;
+    font-weight: 600;
+}
+
+/* --- Content card wrapper --- */
+.card {
+    background-color: white;
+    padding: 24px;
+    border-radius: 14px;
+    margin-bottom: 18px;
+    border: 0.5px solid #ddeee5;
+}
+
+/* --- Form label style --- */
+.form-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #555;
+    margin-bottom: 4px;
+    display: block;
+}
+
+/* --- Primary button --- */
+.stButton > button[kind="primary"] {
+    background-color: #2f5d50 !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 500 !important;
+}
+
+.stButton > button[kind="primary"]:hover {
+    background-color: #3d7a68 !important;
+}
+
+/* --- Secondary button --- */
+.stButton > button[kind="secondary"] {
+    background-color: transparent !important;
+    color: #555 !important;
+    border: 0.5px solid #aaa !important;
+    border-radius: 8px !important;
+}
+
+/* --- Result breed card --- */
+.breed-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    border: 0.5px solid #ddeee5;
+    border-radius: 12px;
+    margin-bottom: 10px;
+    background: white;
+}
+
+.breed-card h3 {
+    margin: 0 0 2px;
+    font-size: 14px;
+    color: #1a1a1a;
+}
+
+.breed-card p {
+    margin: 0;
+    font-size: 12px;
+    color: #777;
+}
+
+.breed-tag {
+    display: inline-block;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 99px;
+    background: #eaf4ee;
+    color: #2f5d50;
+    border: 0.5px solid #c0ddd0;
+    margin-left: 4px;
+}
+
+</style>
+""", unsafe_allow_html=True)
 
 
 # ---------------------------
-# DB HELPERS
+# SESSION STATE INITIALISATION
+# Tracks which page the user is on and whether
+# match results should be shown in the Match Me page.
 # ---------------------------
-
-def get_connection():
-    return sqlite3.connect(DB_PATH)
-
-
-def search_breeds(
-    size: str | None = None,
-    exercise: str | None = None,       # Low / Moderate / High
-    temperament_keywords: List[str] | None = None,
-    limit: int = 10,
-) -> List[Dict[str, Any]]:
-    """
-    Query the breeds table.
-
-    `exercise` should be one of: "Low", "Moderate", "High".
-    These match the exercise_normalized column that create_db.py populates.
-    The raw RKC strings ("Up to 1 hour per day") are stored in the `exercise`
-    column but are never used for filtering here.
-    """
-    conn = get_connection()
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-
-    where = []
-    params: list[Any] = []
-
-    if size and size != "Any":
-        where.append("size = ?")
-        params.append(size)
-
-    if exercise and exercise != "Any":
-        # Filter on the normalised column, not the raw RKC string.
-        where.append("exercise_normalized = ?")
-        params.append(exercise)
-
-    if temperament_keywords:
-        for kw in temperament_keywords:
-            where.append("temperament LIKE ?")
-            params.append(f"%{kw}%")
-
-    where_clause = " WHERE " + " AND ".join(where) if where else ""
-    query = (
-        "SELECT title, size, exercise, exercise_normalized, temperament, "
-        "overview, lifespan, breed_group "
-        "FROM breeds"
-        + where_clause
-        + " LIMIT ?"
-    )
-    params.append(limit)
-
-    rows = cur.execute(query, params).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-
-def search_breeds_by_text(query: str, limit: int = 5) -> List[Dict[str, Any]]:
-    conn = get_connection()
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-
-    like = f"%{query}%"
-    rows = cur.execute(
-        """
-        SELECT
-            title,
-            size,
-            exercise,
-            temperament,
-            overview,
-            lifespan,
-            breed_group,
-            full_text
-        FROM breeds
-        WHERE
-            title       LIKE ?
-            OR temperament LIKE ?
-            OR overview    LIKE ?
-            OR full_text   LIKE ?
-        LIMIT ?
-        """,
-        (like, like, like, like, limit),
-    ).fetchall()
-
-    conn.close()
-    return [dict(r) for r in rows]
-
-
-def format_sqlite_results(matches: List[Dict[str, Any]]) -> str:
-    """Format SQLite results into a readable string for the chat."""
-    lines = ["Here are some breeds from the database that might fit:\n"]
-    for b in matches:
-        title    = b.get("title", "Unknown breed")
-        size     = b.get("size", "N/A")
-        exercise = b.get("exercise", "N/A")
-        lifespan = b.get("lifespan", "") or "N/A"
-        group    = b.get("breed_group", "") or "N/A"
-        overview = b.get("overview", "") or b.get("temperament", "") or ""
-        snippet  = overview[:280] + ("…" if len(overview) > 280 else "")
-        lines.append(
-            f"- **{title}** — Size: {size} | Exercise: {exercise} | "
-            f"Lifespan: {lifespan} | Group: {group}\n  {snippet}"
-        )
-    return "\n\n".join(lines)
-
-
-# ---------------------------
-# PAGE CONFIG
-# ---------------------------
-import traceback
-
-st.set_page_config(page_title="Dog Breed Selector", layout="wide")
-
-PAGES = ["Home", "Breed Finder", "Match Me", "Chat", "Terminology"]
-
 if "page" not in st.session_state:
     st.session_state.page = "Home"
-if "rag_pipeline" not in st.session_state:
-    st.session_state.rag_pipeline = None
-if "rag_available" not in st.session_state:
-    st.session_state.rag_available = False
-if "openai_api_key" not in st.session_state:
-    st.session_state.openai_api_key = os.getenv("OPENAI_API_KEY", "")
 
-
-def initialize_rag_pipeline():
-    """Initialize the RAG pipeline with the provided API key."""
-    if st.session_state.openai_api_key and st.session_state.rag_pipeline is None:
-        try:
-            # Pass the sidebar key explicitly — rag_module now accepts it.
-            st.session_state.rag_pipeline = get_rag_pipeline(
-                api_key=st.session_state.openai_api_key
-            )
-            st.session_state.rag_available = True
-            st.session_state.rag_error = None
-        except Exception as e:
-            st.session_state.rag_available = False
-            st.session_state.rag_error = str(e)
-
-
-initialize_rag_pipeline()
+if "show_results" not in st.session_state:
+    st.session_state.show_results = False
 
 
 # ---------------------------
-# SIDEBAR
+# SIDEBAR NAVIGATION
+# Renders a logo block and styled nav items.
+# Each button updates st.session_state.page on click.
 # ---------------------------
 with st.sidebar:
-    st.title("🐕 Menu")
 
-    page = st.radio("Go to", PAGES, index=PAGES.index(st.session_state.page))
-    st.session_state.page = page
+    # Logo
+    st.markdown("""
+    <div class="sidebar-logo">
+        <div class="dot">🐾</div>
+        <span>Breed Finder</span>
+    </div>
+    """, unsafe_allow_html=True)
 
-    st.divider()
+    # Nav buttons — one per page
+    pages = {
+        "Home":        "🏠",
+        "Match Me":    "🔍",
+        "Chat":        "💬",
+        "Terminology": "📖",
+    }
 
-    st.subheader("🔑 OpenAI Configuration")
-
-    with st.expander("Set API Key", expanded=not st.session_state.openai_api_key):
-        api_key_input = st.text_input(
-            "OpenAI API Key",
-            value=st.session_state.openai_api_key,
-            type="password",
-            placeholder="sk-proj-...",
-            help="Your OpenAI API key (keep this private)",
-        )
-
-        if api_key_input != st.session_state.openai_api_key:
-            st.session_state.openai_api_key = api_key_input
-            st.session_state.rag_pipeline   = None
-            st.session_state.rag_available  = False
+    for label, icon in pages.items():
+        active_class = "active" if st.session_state.page == label else ""
+        # Render the visual nav item
+        st.markdown(f"""
+        <div class="nav-item {active_class}">{icon}&nbsp;&nbsp;{label}</div>
+        """, unsafe_allow_html=True)
+        # Invisible Streamlit button overlaid to capture the click
+        if st.button(label, key=f"nav_{label}", use_container_width=True):
+            st.session_state.page = label
+            st.session_state.show_results = False
             st.rerun()
 
-        if st.button("🔄 Reinitialize Pipeline", key="reinit_btn"):
-            st.session_state.rag_pipeline  = None
-            st.session_state.rag_available = False
-            initialize_rag_pipeline()
-            st.rerun()
-
-    st.divider()
-
-    if st.session_state.get("rag_available"):
-        st.success("✅ AI pipeline ready")
-    else:
-        st.warning("⚠️ AI pipeline unavailable — Chat will use DB search only")
-        if "rag_error" in st.session_state and st.session_state.rag_error:
-            with st.expander("Error details"):
-                st.code(st.session_state.rag_error)
-        elif not st.session_state.openai_api_key:
-            st.caption("💡 Add your OpenAI API key above to enable AI features")
-
-    st.divider()
-
-    st.markdown("**Tips**")
-    st.write("- Use *Breed Finder* to filter breeds from your scraped DB.")
-    st.write("- Use *Match Me* for a lifestyle‑based quiz.")
-    st.write("- Use *Chat* to ask free‑form questions.")
+    st.markdown("""
+    <div style="position:absolute; bottom:20px; left:16px;
+                font-size:11px; color:#aaa;">
+        Powered by Claude API
+    </div>
+    """, unsafe_allow_html=True)
 
 
 # ---------------------------
-# HOME
+# TOPBAR
+# Shows the current page title and a Beta badge.
 # ---------------------------
-def show_home():
-    st.title("🐶 Dog Breed Selector (RKC Scraper Edition)")
+page = st.session_state.page
+
+st.markdown(f"""
+<div class="topbar">
+    <h2>{page}</h2>
+    <span class="badge">Beta</span>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ---------------------------
+# HOME PAGE
+# Brief welcome message and quick-action cards
+# that navigate to the main features.
+# ---------------------------
+if page == "Home":
+
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.subheader("Find your perfect dog")
     st.write(
-        """
-        This app uses data scraped from the Royal Kennel Club, stored in
-        `dog_breeds_rkc.json`, structured by `extract_dbdata.py` into
-        `DBdata.json`, and loaded into `dog_breeds.db` by `create_db.py`.
-
-        - **Breed Finder**: filter breeds directly from the database.
-        - **Match Me**: lifestyle quiz → suggested breeds.
-        """
+        "Answer a few questions about your lifestyle and we'll match you "
+        "with the right breed. Or chat with our AI for personalised advice."
     )
+    st.markdown("</div>", unsafe_allow_html=True)
 
     col1, col2 = st.columns(2)
+
     with col1:
-        st.subheader("Data pipeline")
-        st.markdown(
-            """
-            1. `scrapper.py` → `dog_breeds_rkc.json`
-            2. `extract_dbdata.py` → `DBdata.json`
-            3. `create_db.py` → `dog_breeds.db`
-            4. This app reads from `dog_breeds.db`
-            """
-        )
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown("**🔍 Match me**")
+        st.caption("Lifestyle questionnaire to find your ideal breed.")
+        if st.button("Go to Match Me", key="home_match"):
+            st.session_state.page = "Match Me"
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
     with col2:
-        st.subheader("Before running")
-        st.markdown(
-            """
-            - Run `python scrapper.py`
-            - Then `python extract_dbdata.py`
-            - Then `python create_db.py`
-            - Confirm `dog_breeds.db` is in the project root
-            - Add your OpenAI key in the sidebar for AI chat
-            """
-        )
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown("**💬 Ask the AI**")
+        st.caption("Chat about any dog-related questions.")
+        if st.button("Go to Chat", key="home_chat"):
+            st.session_state.page = "Chat"
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ---------------------------
-# BREED FINDER
+# MATCH ME PAGE
+# Two states controlled by st.session_state.show_results:
+#   False → show the 11-question form
+#   True  → show breed result cards
 # ---------------------------
-def show_breed_finder():
-    st.title("🔎 Breed Finder")
-    st.write("Filter scraped RKC breeds by high‑level traits.")
+elif page == "Match Me":
 
-    size = st.selectbox(
-        "Preferred size",
-        ["Any", "Small", "Medium", "Large", "Giant"],
-    )
-    # Options match the exercise_normalized values stored by create_db.py
-    exercise = st.selectbox(
-        "Exercise requirement",
-        ["Any", "Low", "Moderate", "High"],
-    )
-    temp_keywords_str = st.text_input(
-        "Temperament keywords (optional, comma‑separated)",
-        placeholder="e.g., friendly, calm, confident",
-    )
+    # --- FORM STATE ---
+    if not st.session_state.show_results:
 
-    if st.button("Find breeds"):
-        temperament_keywords = (
-            [t.strip() for t in temp_keywords_str.split(",") if t.strip()]
-            if temp_keywords_str
-            else []
-        )
-        try:
-            results = search_breeds(
-                size=size if size != "Any" else None,
-                exercise=exercise if exercise != "Any" else None,
-                temperament_keywords=temperament_keywords,
-                limit=20,
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("Lifestyle questionnaire")
+        st.caption("Answer as many or as few questions as you like — 'No preference' is always fine.")
+
+        # Questions laid out in a 2-column grid
+        col1, col2 = st.columns(2)
+
+        with col1:
+            space = st.selectbox(
+                "Living space",
+                ["No preference", "Flat / apartment", "Small house", "Large house", "Other"]
             )
-        except Exception as e:
-            st.error(f"Error querying database: {e}")
-            return
+            grooming = st.selectbox(
+                "Grooming frequency",
+                ["No preference", "Daily", "More than once a week", "Once a week", "Less than once a week"]
+            )
+            coat = st.selectbox(
+                "Coat length",
+                ["No preference", "Short", "Medium", "Long"]
+            )
+            animals = st.selectbox(
+                "Other animals at home",
+                ["No preference", "Yes — other dogs", "Yes — cats",
+                 "Yes — multiple animals", "Yes — other animals", "No other animals"]
+            )
+            experience = st.selectbox(
+                "Experience with dogs",
+                ["No preference", "None", "Very little", "Average", "A lot", "Very well informed"]
+            )
+            age = st.selectbox(
+                "Preferred age range",
+                ["No preference", "Less than 10 years", "Over 10 years", "Over 12 years"]
+            )
 
-        if not results:
-            st.info("No breeds found that match those filters.")
-            return
+        with col2:
+            size = st.selectbox(
+                "Preferred size",
+                ["No preference", "Small", "Small-medium", "Medium", "Large", "Extra large"]
+            )
+            shedding = st.selectbox(
+                "Shedding tolerance",
+                ["No preference", "No shedding preferred", "Shedding is fine"]
+            )
+            exercise = st.selectbox(
+                "Daily exercise",
+                ["No preference", "30 minutes", "1 hour", "2 hours", "More than 2 hours"]
+            )
+            children = st.selectbox(
+                "Children around the dog",
+                ["No preference", "Yes", "No", "Unsure"]
+            )
+            dog_type = st.selectbox(
+                "Breed type",
+                ["No preference", "Toy", "Hound", "Working", "Gundog", "Pastoral", "Utility", "Unsure"]
+            )
 
-        st.subheader(f"Found {len(results)} breeds")
-        for b in results:
-            with st.expander(b["title"], expanded=False):
-                st.write(f"**Size:** {b.get('size') or 'N/A'}")
-                st.write(f"**Exercise:** {b.get('exercise') or 'N/A'}")
-                st.write(f"**Lifespan:** {b.get('lifespan') or 'N/A'}")
-                st.write(f"**Breed group:** {b.get('breed_group') or 'N/A'}")
-                st.write(f"**Temperament:** {b.get('temperament') or 'N/A'}")
-                overview = b.get("overview") or ""
-                if overview:
-                    st.markdown("---")
-                    st.write("**Overview (from RKC):**")
-                    st.write(overview)
+        st.markdown("<br>", unsafe_allow_html=True)
+        btn_col1, btn_col2 = st.columns([1, 5])
 
+        # Submit button — sends filters to the worker API
+        with btn_col1:
+            if st.button("Find matches", type="primary"):
+                try:
+                    with st.spinner("Finding best matches..."):
+                        response = requests.post(
+                            "https://your-worker-url.workers.dev",
+                            json={"filters": {
+                                "space":      space,
+                                "size":       size,
+                                "grooming":   grooming,
+                                "shedding":   shedding,
+                                "coat":       coat,
+                                "exercise":   exercise,
+                                "animals":    animals,
+                                "children":   children,
+                                "experience": experience,
+                                "type":       dog_type,
+                                "age":        age,
+                            }}
+                        )
 
-# ---------------------------
-# MATCH ME
-# ---------------------------
-def show_match_me():
-    st.title("🎯 Match Me")
-    st.write("Answer a few questions and we'll suggest breeds from your scraped DB.")
+                    if response.status_code == 200:
+                        # Store results in session state and switch to results view
+                        st.session_state.match_results = response.json()
+                        st.session_state.show_results = True
+                        st.rerun()
+                    else:
+                        st.error("Server error. Please try again.")
 
-    with st.form("match_me_quiz"):
-        st.subheader("Your living situation")
-        home_type = st.selectbox(
-            "What type of home do you live in?",
-            ["Apartment", "Small house", "Large house", "Farm or rural property"],
-        )
-        outdoor_space = st.selectbox(
-            "Outdoor space available",
-            [
-                "No yard",
-                "Small shared yard",
-                "Private small yard",
-                "Large yard or land",
-            ],
-        )
+                except Exception as e:
+                    st.error(f"Connection error: {e}")
 
-        st.subheader("Time and activity")
-        exercise_time = st.selectbox(
-            "How much time per day can you dedicate to exercise?",
-            ["< 30 minutes", "30–60 minutes", "1–2 hours", "2+ hours"],
-        )
-        activity_level = st.selectbox(
-            "How active are you generally?",
-            ["Prefer calm walks", "Moderately active", "Very active (running/hiking)"],
-        )
+        # Reset button — clears results and reruns
+        with btn_col2:
+            if st.button("Reset", type="secondary"):
+                st.session_state.show_results = False
+                st.rerun()
 
-        st.subheader("Experience & family")
-        dog_experience = st.selectbox(
-            "Your dog experience",
-            ["First‑time owner", "Some experience", "Very experienced"],
-        )
-        kids = st.radio(
-            "Children in the household?",
-            ["No children", "Young children", "Older children/teens"],
-        )
+        st.markdown("</div>", unsafe_allow_html=True)
 
-        allergies = st.checkbox("Someone in the household has dog allergies")
-
-        submitted = st.form_submit_button("Get my matches")
-
-    if not submitted:
-        return
-
-    st.subheader("Suggested breeds (using DB filters)")
-
-    # ── Map quiz answers to size ───────────────────────────────────────────
-    if home_type == "Apartment":
-        size_pref = "Small"
-    elif home_type == "Small house":
-        size_pref = "Medium"
+    # --- RESULTS STATE ---
     else:
-        size_pref = None
+        results = st.session_state.get("match_results", [])
 
-    # ── Map quiz answers to exercise_normalized tokens ────────────────────
-    # These must match the values in the exercise_normalized column:
-    # "Low", "Moderate", or "High".
-    if exercise_time in ["< 30 minutes", "30–60 minutes"] and activity_level == "Prefer calm walks":
-        exercise_pref = "Low"
-    elif (
-        exercise_time in ["30–60 minutes", "1–2 hours"]
-        and activity_level != "Very active (running/hiking)"
-    ):
-        exercise_pref = "Moderate"
-    else:
-        exercise_pref = "High"
+        header_col, edit_col = st.columns([3, 1])
+        with header_col:
+            st.subheader(f"{len(results)} breed{'s' if len(results) != 1 else ''} matched your profile")
+        with edit_col:
+            if st.button("← Edit answers"):
+                st.session_state.show_results = False
+                st.rerun()
 
-    temperament_keywords: List[str] = []
-    if kids != "No children":
-        temperament_keywords += ["good with children", "gentle", "friendly", "family"]
-    if dog_experience == "First‑time owner":
-        temperament_keywords += ["easy to train", "trainable", "eager"]
-    if allergies:
-        temperament_keywords += ["low shedding", "hypoallergenic", "non-shedding"]
-
-    try:
-        matches = search_breeds(
-            size=size_pref,
-            exercise=exercise_pref,
-            temperament_keywords=temperament_keywords,
-            limit=10,
-        )
-    except Exception as e:
-        st.error(f"Error querying database: {e}")
-        return
-
-    if not matches:
-        st.info(
-            "No clear matches from the quiz mapping. "
-            "Try relaxing constraints or using Breed Finder."
-        )
-        return
-
-    for b in matches:
-        with st.expander(b["title"], expanded=False):
-            st.write(f"**Size:** {b.get('size') or 'N/A'}")
-            st.write(f"**Exercise:** {b.get('exercise') or 'N/A'}")
-            st.write(f"**Lifespan:** {b.get('lifespan') or 'N/A'}")
-            st.write(f"**Breed group:** {b.get('breed_group') or 'N/A'}")
-            st.write(f"**Temperament:** {b.get('temperament') or 'N/A'}")
-            overview = b.get("overview") or ""
-            if overview:
-                st.markdown("---")
-                st.write("**Overview (from RKC):**")
-                st.write(overview)
+        if results:
+            for breed in results:
+                # Render each matched breed as a styled card
+                st.markdown(f"""
+                <div class="breed-card">
+                    <div style="font-size:28px;">🐕</div>
+                    <div style="flex:1;">
+                        <h3>{breed['name']}</h3>
+                        <p>{breed.get('size','—')} · {breed.get('type','—')} · {breed.get('lifespan','—')}</p>
+                    </div>
+                    <div>
+                        <span class="breed-tag">{breed.get('energy','—')}</span>
+                        <span class="breed-tag">{breed.get('grooming','—')}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No matches found. Try adjusting your answers.")
 
 
 # ---------------------------
-# CHAT
+# CHAT PAGE
+# Simple chat interface with message history stored
+# in session state. AI responses are fetched from
+# the worker API with the full conversation history.
 # ---------------------------
-def show_chat():
-    st.title("💬 Chat — Ask anything about dog breeds")
+elif page == "Chat":
 
-    rag_available = st.session_state.get("rag_available", False)
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.subheader("Chat with AI")
 
-    if not rag_available:
-        st.warning("⚠️ AI unavailable — using database search only.")
+    # Initialise message history
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
 
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
+    # Render existing messages
+    for sender, msg in st.session_state.messages:
+        align  = "right" if sender == "You" else "left"
+        bg     = "#d4ede2" if sender == "You" else "#f1f1f1"
+        color  = "#1a1a1a"
 
-    user_input = st.text_input(
-        "Ask a question",
-        placeholder="e.g., give me a big dog that is friendly",
-        key="chat_input",
-    )
+        st.markdown(f"""
+        <div style="text-align:{align}; margin:10px 0;">
+            <div style="display:inline-block; background:{bg}; color:{color};
+                        padding:10px 15px; border-radius:12px; max-width:72%;
+                        font-size:14px; line-height:1.5;">
+                {msg}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    col_send, col_clear = st.columns([1, 1])
-    with col_send:
-        send = st.button("Send")
-    with col_clear:
-        clear = st.button("Clear chat")
+    # Input bar
+    user_input = st.text_input("Ask something about dogs:", key="chat_input",
+                               placeholder="e.g. What's a good breed for a flat?")
 
-    if clear:
-        st.session_state.chat_history = []
-        st.rerun()
+    if st.button("Send", type="primary"):
+        if user_input.strip():
+            st.session_state.messages.append(("You", user_input))
+            # TODO: replace stub with real API call to your worker
+            st.session_state.messages.append(("AI", "AI response coming soon!"))
+            st.rerun()
 
-    if send and user_input:
-        answer = None
-
-        # ── Try RAG pipeline first ────────────────────────────────────────
-        if rag_available and st.session_state.rag_pipeline is not None:
-            try:
-                with st.spinner("Thinking..."):
-                    answer = st.session_state.rag_pipeline.answer_question(user_input)
-            except Exception as e:
-                st.warning(f"AI pipeline error: {e} — falling back to database search.")
-                answer = None
-
-        # ── Fallback: SQLite text search ──────────────────────────────────
-        if answer is None:
-            try:
-                matches = search_breeds_by_text(user_input, limit=5)
-                if matches:
-                    answer = format_sqlite_results(matches)
-                else:
-                    answer = (
-                        "I couldn't find any strong matches in the database for that description. "
-                        "Try different words (e.g., 'large friendly family dog')."
-                    )
-            except Exception as e:
-                answer = f"Sorry, both the AI pipeline and database search failed. Error: {e}"
-
-        st.session_state.chat_history.append(("You", user_input))
-        st.session_state.chat_history.append(("Assistant", answer))
-
-    # ── Render conversation ───────────────────────────────────────────────
-    if st.session_state.chat_history:
-        st.subheader("Conversation")
-        for speaker, msg in st.session_state.chat_history:
-            if speaker == "You":
-                st.markdown(f"**You:** {msg}")
-            else:
-                st.markdown(msg)
-                st.markdown("---")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ---------------------------
-# TERMINOLOGY
+# TERMINOLOGY PAGE
+# Expandable sections for each Kennel Club breed group.
+# Content is taken directly from the original app.
 # ---------------------------
-def show_terminology():
-    st.title("📚 Dog Terminology")
-    st.write("Expand the sections to learn key dog‑related terms.")
+elif page == "Terminology":
 
-    with st.expander("Breed Groups"):
-        st.write("Groups of breeds with similar historical roles or traits.")
-        st.write("- **Hound Group** – traditionally used for hunting by scent or sight.")
-        st.write("- **Working Group** – strong breeds used for guarding and labor.")
-        st.write("- **Toy Group** – small companion dogs.")
-        st.write("- **Gundog / Sporting Group** – dogs bred to work closely with hunters.")
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.subheader("Dog terminology")
 
-    with st.expander("Exercise Requirement"):
-        st.write("How much activity a dog needs daily.")
-        st.write("- **Low** – short walks and light play (up to ~1 hour).")
-        st.write("- **Moderate** – one or two substantial walks per day (1–2 hours).")
-        st.write("- **High** – several hours of vigorous activity daily (2+ hours).")
+    with st.expander("Dog breed"):
+        st.write("A standardised type of dog with consistent, heritable traits, "
+                 "selectively bred over generations for appearance or function.")
 
-    with st.expander("Temperament Descriptors"):
-        st.write("- **Family‑friendly** – often patient and tolerant with children.")
-        st.write("- **Independent** – may be less eager to please, more self‑directed.")
-        st.write("- **High‑drive** – very motivated to work, may need jobs or sports.")
-
-    with st.expander("Grooming Terms"):
-        st.write("- **Double‑coated** – dense undercoat with longer outer coat; sheds seasonally.")
+    with st.expander("Pastoral group"):
         st.write(
-            "- **Hypoallergenic (informal)** – often used for breeds that shed less "
-            "and may be better tolerated by some allergy sufferers."
+            "The Pastoral Group consists of herding dogs associated with working cattle, sheep, "
+            "reindeer and other cloven-footed animals. Usually this type of dog has a weatherproof "
+            "double coat to protect it from the elements. Breeds such as the Collie family, Old "
+            "English Sheepdogs and Samoyeds are but a few included in this group."
         )
 
-    with st.expander("Size Categories"):
-        st.write("- **Toy** – typically under 5 kg.")
-        st.write("- **Small** – roughly 5–10 kg.")
-        st.write("- **Medium** – roughly 10–25 kg.")
-        st.write("- **Large** – roughly 25–45 kg.")
-        st.write("- **Giant** – over 45 kg.")
+    with st.expander("Hound group"):
+        st.write(
+            "Breeds originally used for hunting either by scent or by sight. Scent hounds include "
+            "the Beagle and Bloodhound; sight hounds include the Whippet and Greyhound. Many enjoy "
+            "significant exercise and can be described as dignified, aloof but trustworthy companions."
+        )
 
+    with st.expander("Utility group"):
+        st.write(
+            "A miscellaneous group of mainly non-sporting breeds including the Bulldog, Dalmatian, "
+            "Akita and Poodle. 'Utility' means fitness for a purpose — most were selectively bred "
+            "for a specific function not covered by sporting or working categories."
+        )
 
-# ---------------------------
-# MAIN ROUTER
-# ---------------------------
-def main():
-    page = st.session_state.page
-    if page == "Home":
-        show_home()
-    elif page == "Breed Finder":
-        show_breed_finder()
-    elif page == "Match Me":
-        show_match_me()
-    elif page == "Chat":
-        show_chat()
-    elif page == "Terminology":
-        show_terminology()
-    else:
-        show_home()
+    with st.expander("Gundog group"):
+        st.write(
+            "Dogs originally trained to find live game and/or retrieve wounded game. Divided into "
+            "Retrievers, Spaniels, Hunt/Point/Retrieve, Pointers and Setters. Known for their "
+            "temperament as all-round family dogs."
+        )
 
+    with st.expander("Toy group"):
+        st.write(
+            "Small companion or lap dogs. Many were bred specifically as companions; others are "
+            "placed here due to their size. They should have friendly personalities, love attention, "
+            "and require modest exercise."
+        )
 
-if __name__ == "__main__":
-    main()
+    with st.expander("Terrier group"):
+        st.write(
+            "Dogs bred to hunt vermin above and below ground. 'Terrier' comes from the Latin "
+            "word Terra, meaning earth. Hardy and brave, they were bred to pursue fox, badger, "
+            "rat and otter. Terrier-type dogs have been documented since the Middle Ages."
+        )
+
+    with st.expander("Working group"):
+        st.write(
+            "Selectively bred over centuries as guards and search-and-rescue dogs. Arguably "
+            "some of the most heroic canines in the world — including the Boxer, Great Dane "
+            "and St. Bernard — this group excels in specialised roles."
+        )
+
+    st.markdown("</div>", unsafe_allow_html=True)
