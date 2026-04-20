@@ -1,263 +1,879 @@
 import streamlit as st
-import requests
+import os
 
 # ---------------------------
 # PAGE CONFIGURATION
 # ---------------------------
+
 st.set_page_config(page_title="Dog Breed Selector", layout="centered")
 
 # ---------------------------
 # CUSTOM STYLING
 # ---------------------------
+
 st.markdown("""
 <style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600&family=DM+Serif+Display&display=swap');
+
+/* --- Hide Streamlit status/running icons --- */
+[data-testid="stStatusWidget"] {
+    display: none !important;
+}
+
+/* --- Hide Streamlit top-right menu deploy button --- */
+[data-testid="stToolbar"] {
+    display: none !important;
+}
+
+/* --- App background --- */
 .stApp {
-    background-color: #f6faf7;
+    background-color: #f5f9f6;
+    font-family: 'DM Sans', sans-serif;
 }
 
-.card {
-    background-color: white;
-    padding: 25px;
-    border-radius: 16px;
-    margin-bottom: 20px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+/* --- Hide default Streamlit sidebar nav --- */
+div[data-testid="stSidebarNav"] {
+    display: none;
 }
 
-h1, h2, h3 {
-    color: #2f5d50;
-}
-
-.stButton > button {
-    background-color: #4CAF7A;
-    color: white;
-    border-radius: 10px;
-    padding: 8px 16px;
-    border: none;
-}
-
-.stButton > button:hover {
-    background-color: #3d9c65;
-}
-
+/* --- Sidebar background --- */
 section[data-testid="stSidebar"] {
     background-color: #eaf4ee;
+    border-right: 1px solid #d6eadd;
+}
+
+section[data-testid="stSidebar"] .stButton {
+    margin-bottom: 0 !important;
+}
+
+section[data-testid="stSidebar"] .stButton > button {
+    width: 100% !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 7px !important;
+    color: #5a7268 !important;
+    font-family: 'DM Sans', sans-serif !important;
+    font-size: 12.5px !important;
+    font-weight: 500 !important;
+    padding: 7px 12px !important;
+    text-align: left !important;
+    cursor: pointer !important;
+    transition: background 0.15s, color 0.15s !important;
+    margin-bottom: 2px !important;
+    box-shadow: none !important;
+    justify-content: flex-start !important;
+    line-height: 1.4 !important;
+}
+
+section[data-testid="stSidebar"] .stButton > button:hover {
+    background: #d8eede !important;
+    color: #2f5d50 !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+section[data-testid="stSidebar"] .stButton > button:focus:not(:active) {
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+section[data-testid="stSidebar"] .nav-active + div .stButton > button {
+    background: #ffffff !important;
+    color: #2f5d50 !important;
+    font-weight: 600 !important;
+    border: 0.5px solid #c0ddd0 !important;
+    box-shadow: 0 1px 4px rgba(47,93,80,0.08) !important;
+}
+
+/* --- Sidebar logo block --- */
+.sidebar-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 12px 18px;
+}
+
+.sidebar-logo .dot {
+    width: 26px;
+    height: 26px;
+    background: linear-gradient(135deg, #3f7a65, #5da58a);
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    box-shadow: 0 2px 6px rgba(47,93,80,0.25);
+    flex-shrink: 0;
+}
+
+.sidebar-logo span {
+    font-size: 13px;
+    font-weight: 600;
+    color: #2f5d50;
+    letter-spacing: -0.2px;
+}
+
+/* --- Page topbar --- */
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0 16px;
+    border-bottom: 1px solid #ddeee5;
+    margin-bottom: 22px;
+}
+
+.topbar h2 {
+    margin: 0;
+    font-family: 'DM Serif Display', serif;
+    font-size: 20px;
+    color: #1e3d33;
+    letter-spacing: -0.3px;
+}
+
+
+
+/* --- Content card wrapper --- */
+.card {
+    background-color: white;
+    padding: 22px 24px;
+    border-radius: 14px;
+    margin-bottom: 16px;
+    border: 0.5px solid #ddeee5;
+    box-shadow: 0 2px 8px rgba(47,93,80,0.06);
+}
+
+.card-welcome {
+    background: linear-gradient(135deg, #ffffff 60%, #eaf6ef);
+    border-left: 3px solid #2f5d50;
+}
+
+/* --- Quick action card --- */
+.action-card {
+    background-color: white;
+    padding: 20px;
+    border-radius: 14px;
+    border: 0.5px solid #ddeee5;
+    box-shadow: 0 2px 8px rgba(47,93,80,0.06);
+    height: 100%;
+}
+
+.action-card h4 {
+    margin: 0 0 6px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #1e3d33;
+}
+
+.action-card p {
+    margin: 0 0 14px;
+    font-size: 12px;
+    color: #7a9088;
+    line-height: 1.5;
+}
+
+/* --- Stat pills on home --- */
+.stat-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 14px;
+    flex-wrap: wrap;
+}
+
+.stat-pill {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 99px;
+    background: #eaf4ee;
+    color: #2f5d50;
+    font-weight: 500;
+    border: 0.5px solid #c0ddd0;
+}
+
+/* --- Primary button (main content area only) --- */
+.stMain .stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, #2f5d50, #3d7a68) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 500 !important;
+    font-size: 13px !important;
+    padding: 0.45rem 1.1rem !important;
+    box-shadow: 0 2px 6px rgba(47,93,80,0.2) !important;
+}
+
+.stMain .stButton > button[kind="primary"]:hover {
+    background: linear-gradient(135deg, #3d7a68, #4e9a85) !important;
+    box-shadow: 0 4px 12px rgba(47,93,80,0.28) !important;
+}
+
+/* --- Secondary button --- */
+.stButton > button[kind="secondary"] {
+    background-color: transparent !important;
+    color: #5a7268 !important;
+    border: 0.5px solid #b0cdc2 !important;
+    border-radius: 8px !important;
+    font-size: 13px !important;
+    box-shadow: none !important;
+}
+
+/* --- Result breed card --- */
+.breed-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    border: 0.5px solid #ddeee5;
+    border-radius: 12px;
+    margin-bottom: 10px;
+    background: white;
+    box-shadow: 0 1px 4px rgba(47,93,80,0.05);
+}
+
+.breed-card h3 {
+    margin: 0 0 3px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #1a1a1a;
+}
+
+.breed-card p {
+    margin: 0;
+    font-size: 12px;
+    color: #7a9088;
+}
+
+.breed-initial {
+    width: 44px;
+    height: 44px;
+    background: #eaf4ee;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    font-weight: 700;
+    color: #2f5d50;
+    flex-shrink: 0;
+}
+
+.breed-tag {
+    display: inline-block;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 99px;
+    background: #eaf4ee;
+    color: #2f5d50;
+    border: 0.5px solid #c0ddd0;
+    margin-left: 4px;
+    font-weight: 500;
+}
+
+/* --- Chat bubbles --- */
+.chat-bubble-user {
+    text-align: right;
+    margin: 8px 0;
+}
+
+.chat-bubble-user .bubble {
+    display: inline-block;
+    background: linear-gradient(135deg, #2f5d50, #3d7a68);
+    color: white;
+    padding: 10px 15px;
+    border-radius: 16px 16px 4px 16px;
+    max-width: 72%;
+    font-size: 13.5px;
+    line-height: 1.5;
+    box-shadow: 0 2px 6px rgba(47,93,80,0.2);
+}
+
+.chat-bubble-ai {
+    text-align: left;
+    margin: 8px 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.chat-avatar {
+    width: 26px;
+    height: 26px;
+    background: #eaf4ee;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    color: #2f5d50;
+    flex-shrink: 0;
+    border: 1px solid #c0ddd0;
+    margin-top: 2px;
+}
+
+.chat-bubble-ai .bubble {
+    display: inline-block;
+    background: #f1f6f3;
+    color: #1e3d33;
+    padding: 10px 15px;
+    border-radius: 4px 16px 16px 16px;
+    max-width: 72%;
+    font-size: 13.5px;
+    line-height: 1.5;
+    border: 0.5px solid #ddeee5;
+}
+
+.chat-sender-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: #9ab0a8;
+    margin-bottom: 3px;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+}
+
+/* --- Terminology group cards --- */
+.term-group {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 10px;
+    background: white;
+    border: 0.5px solid #ddeee5;
+    margin-bottom: 10px;
+    box-shadow: 0 1px 4px rgba(47,93,80,0.04);
+}
+
+.term-group-badge {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    margin-top: 2px;
+    white-space: nowrap;
+}
+
+.term-group h4 {
+    margin: 0 0 4px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #1e3d33;
+}
+
+.term-group p {
+    margin: 0;
+    font-size: 12px;
+    color: #667e75;
+    line-height: 1.55;
+}
+
+/* --- Form section label --- */
+.form-section {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: #9ab0a8;
+    margin: 14px 0 6px;
+}
+
+/* --- Streamlit select/input label override --- */
+.stSelectbox label,
+.stTextInput label {
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    color: #4a6a60 !important;
+}
+
+/* --- RAG result card --- */
+.rag-result-card {
+    background: white;
+    border: 0.5px solid #ddeee5;
+    border-radius: 14px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+    box-shadow: 0 2px 8px rgba(47,93,80,0.06);
+    font-size: 13.5px;
+    color: #1e3d33;
+    line-height: 1.75;
+    white-space: pre-wrap;
 }
 </style>
 """, unsafe_allow_html=True)
 
 # ---------------------------
-# HEADER
+# RAG PIPELINE IMPORT
 # ---------------------------
-st.markdown("""
-<div style="background-color:#2f5d50; padding:15px 25px; border-radius:10px; margin-bottom:20px;">
-    <h2 style="color:white; margin:0;">Dog Breed Selector</h2>
-</div>
-""", unsafe_allow_html=True)
+
+@st.cache_resource(show_spinner=False)
+def load_rag_pipeline(api_key: str, use_scraped: bool = True):
+    """
+    Load the RAG pipeline once and cache it for the session.
+    Cached by api_key + use_scraped so a new key triggers a reload.
+    """
+    try:
+        from rag_module import get_rag_pipeline
+        return get_rag_pipeline(use_scraped_data=use_scraped, api_key=api_key), None
+    except Exception as e:
+        return None, str(e)
 
 # ---------------------------
-# PAGES
+# SESSION STATE
 # ---------------------------
-pages = ["Home", "Match Me", "Chat", "Terminology"]
 
 if "page" not in st.session_state:
     st.session_state.page = "Home"
 
+if "show_results" not in st.session_state:
+    st.session_state.show_results = False
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if "openai_key" not in st.session_state:
+    st.session_state.openai_key = os.getenv("OPENAI_API_KEY", "")
+
 # ---------------------------
-# SIDEBAR
+# SIDEBAR NAVIGATION
 # ---------------------------
+
 with st.sidebar:
-    st.title("Menu")
-    page = st.radio("Navigate", pages, index=pages.index(st.session_state.page))
-    st.session_state.page = page
+    st.markdown("""
+    <div class="sidebar-logo">
+        <div class="dot">BF</div>
+        <span>Breed Finder</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    pages = ["Home", "Match Me", "Chat", "Terminology"]
+    for label in pages:
+        if st.session_state.page == label:
+            st.markdown('<div class="nav-active"></div>', unsafe_allow_html=True)
+        if st.button(label, key=f"nav_{label}", use_container_width=True):
+            st.session_state.page = label
+            st.session_state.show_results = False
+            st.rerun()
+
+    # --- API Key input ---
+    st.markdown("---")
+    st.markdown(
+        '<div style="font-size:11px;font-weight:600;color:#9ab0a8;text-transform:uppercase;'
+        'letter-spacing:0.5px;margin-bottom:6px;">OpenAI API Key</div>',
+        unsafe_allow_html=True,
+    )
+    key_input = st.text_input(
+        "OpenAI API Key",
+        type="password",
+        value=st.session_state.openai_key,
+        placeholder="sk-...",
+        label_visibility="collapsed",
+    )
+    if key_input and key_input != st.session_state.openai_key:
+        st.session_state.openai_key = key_input
+        # Clear cached pipeline so it reloads with the new key
+        st.cache_resource.clear()
+        st.rerun()
+
+    if st.session_state.openai_key:
+        st.markdown(
+            '<div style="font-size:11px;color:#2f5d50;margin-top:4px;">✓ Key set</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<div style="font-size:11px;color:#e07a3a;margin-top:4px;">⚠ No key — AI features disabled</div>',
+            unsafe_allow_html=True,
+        )
 
 # ---------------------------
-# HOME
+# TOPBAR
 # ---------------------------
+
+page = st.session_state.page
+
+page_subtitles = {
+    "Home": "Welcome",
+    "Match Me": "Find your ideal breed",
+    "Chat": "Ask the AI anything",
+    "Terminology": "Breed group reference",
+}
+
+st.markdown(f"""
+<div class="topbar">
+    <h2>{page}</h2>
+    <div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:11px;color:#9ab0a8;">{page_subtitles.get(page,'')}</span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# ---------------------------
+# HOME PAGE
+# ---------------------------
+
 if page == "Home":
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-
-    st.subheader("Find Your Perfect Dog")
-
-    st.write("""
-    Use this app to:
-    - Get matched with a dog breed based on your lifestyle  
-    - Chat about dogs  
-    - Learn dog terminology  
-    """)
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ---------------------------
-# MATCH ME (QUESTIONNAIRE)
-# ---------------------------
-elif page == "Match Me":
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-
-    st.subheader("Lifestyle Questionnaire")
-
-    # QUESTIONS
-    space = st.selectbox("What kind of space do you live in?",
-        ["Other", "Small House", "Large House", "Flat/Apartment"])
-
-    size = st.selectbox("What size dog do you prefer?",
-        ["No preference", "Small", "Small-Medium", "Medium", "Large", "Extra Large"])
-
-    grooming = st.selectbox("How often do you want to groom your dog?",
-        ["No preference", "Daily", "Once a week", "More than once a week", "Less often than once a week"])
-
-    shedding = st.selectbox("Do you mind shedding?",
-        ["No preference", "Yes", "No"])
-
-    coat = st.selectbox("Do you mind coat length?",
-        ["No preference", "Short", "Medium", "Long"])
-
-    exercise = st.selectbox("How much exercise can you give daily?",
-        ["No preference", "30 minutes", "1 hour", "2 hours", "More than 2 hours"])
-
-    animals = st.selectbox("Do you have other animals?",
-        ["No preference", "Yes I have dogs", "Yes I have cats",
-         "Yes I have multiple animals", "Yes I have other animals",
-         "No I do not have other animals"])
-
-    children = st.selectbox("Will there be children around the dog?",
-        ["No preference", "Yes", "No", "Unsure"])
-
-    experience = st.selectbox("How much experience do you have with dogs?",
-        ["No preference", "None", "Very little", "Average amount",
-         "A lot of experience",
-         "Very well informed"])
-
-    dog_type = st.selectbox("What type of dog are you looking for?",
-        ["No preference", "Toy", "Hound", "Working", "Gundog", "Pastoral", "Utility", "Unsure"])
-
-    age = st.selectbox("What age range are you looking for?",
-        ["No preference", "Less than 10 years", "Over 10 years", "Over 12 years"])
-
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("""
+    <div class="card card-welcome">
+        <div style="font-family:'DM Serif Display',serif;font-size:22px;color:#1e3d33;margin-bottom:8px;">
+            Find your perfect dog
+        </div>
+        <p style="font-size:13.5px;color:#5a7268;line-height:1.6;margin:0 0 12px;">
+            Answer a few questions about your lifestyle and we'll match you with the right breed.
+            Or chat with our AI for personalised advice.
+        </p>
+        <div class="stat-row">
+            <span class="stat-pill">300+ breeds</span>
+            <span class="stat-pill">Instant match</span>
+            <span class="stat-pill">AI-powered</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     col1, col2 = st.columns(2)
 
-    # SUBMIT
     with col1:
-        if st.button("Get Matches"):
-            try:
-                with st.spinner("Finding best matches..."):
-                    response = requests.post(
-                        "https://your-worker-url.workers.dev",
-                        json={"filters": {
-                            "space": space,
-                            "size": size,
-                            "grooming": grooming,
-                            "shedding": shedding,
-                            "coat": coat,
-                            "exercise": exercise,
-                            "animals": animals,
-                            "children": children,
-                            "experience": experience,
-                            "type": dog_type,
-                            "age": age,
-                        }}
-                    )
-
-                if response.status_code == 200:
-                    data = response.json()
-
-                    st.subheader("Best Matches")
-
-                    if data:
-                        for breed in data:
-                            st.markdown(f"""
-                            <div class="card">
-                                <h3>{breed['name']}</h3>
-                                <p><b>Size:</b> {breed['size']}</p>
-                                <p><b>Energy:</b> {breed['energy']}</p>
-                                <p><b>Grooming:</b> {breed['grooming']}</p>
-                            </div>
-                            """, unsafe_allow_html=True)
-                    else:
-                        st.info("No matches found. Try adjusting your answers.")
-
-                else:
-                    st.error("Server error.")
-
-            except Exception as e:
-                st.error(f"Error: {e}")
-
-    # RESET
-    with col2:
-        if st.button("Reset"):
-            st.rerun()
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ---------------------------
-# CHAT
-# ---------------------------
-elif page == "Chat":
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-
-    st.subheader("Chat with AI")
-
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-
-    user_input = st.text_input("Ask something about dogs:")
-
-    if st.button("Send"):
-        if user_input:
-            st.session_state.messages.append(("You", user_input))
-            st.session_state.messages.append(("AI", "AI coming soon!"))
-
-    for sender, msg in st.session_state.messages:
-        align = "right" if sender == "You" else "left"
-        color = "#d1e7dd" if sender == "You" else "#f1f1f1"
-
-        st.markdown(f"""
-        <div style="text-align:{align}; margin:10px 0;">
-            <div style="
-                display:inline-block;
-                background:{color};
-                padding:10px 15px;
-                border-radius:12px;
-                max-width:70%;
-            ">
-                {msg}
-            </div>
+        st.markdown("""
+        <div class="action-card">
+            <h4>Match Me</h4>
+            <p>Answer 11 lifestyle questions and get a personalised breed shortlist.</p>
         </div>
         """, unsafe_allow_html=True)
+        if st.button("Start questionnaire", key="home_match", type="primary", use_container_width=True):
+            st.session_state.page = "Match Me"
+            st.rerun()
 
-    st.markdown("</div>", unsafe_allow_html=True)
+    with col2:
+        st.markdown("""
+        <div class="action-card">
+            <h4>Ask the AI</h4>
+            <p>Chat freely about any dog-related questions — breeds, training, care and more.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("Open chat", key="home_chat", type="primary", use_container_width=True):
+            st.session_state.page = "Chat"
+            st.rerun()
 
 # ---------------------------
-# TERMINOLOGY
+# MATCH ME PAGE
 # ---------------------------
+
+elif page == "Match Me":
+    if not st.session_state.show_results:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("Lifestyle questionnaire")
+        st.caption("Answer as many or as few as you like — 'No preference' is always fine.")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown('<div class="form-section">Your home</div>', unsafe_allow_html=True)
+            space = st.selectbox(
+                "Living space",
+                ["No preference", "Flat / apartment", "Small house", "Large house", "Other"],
+            )
+            size = st.selectbox(
+                "Preferred size",
+                ["No preference", "Small", "Small-medium", "Medium", "Large", "Extra large"],
+            )
+            animals = st.selectbox(
+                "Other animals at home",
+                ["No preference", "Yes — other dogs", "Yes — cats", "Yes — multiple animals",
+                 "Yes — other animals", "No other animals"],
+            )
+            children = st.selectbox(
+                "Children around the dog",
+                ["No preference", "Yes", "No", "Unsure"],
+            )
+
+            st.markdown('<div class="form-section">Breed preferences</div>', unsafe_allow_html=True)
+            dog_type = st.selectbox(
+                "Breed type",
+                ["No preference", "Toy", "Hound", "Working", "Gundog", "Pastoral", "Utility", "Unsure"],
+            )
+            age = st.selectbox(
+                "Preferred age range",
+                ["No preference", "Less than 10 years", "Over 10 years", "Over 12 years"],
+            )
+
+        with col2:
+            st.markdown('<div class="form-section">Care & activity</div>', unsafe_allow_html=True)
+            exercise = st.selectbox(
+                "Daily exercise",
+                ["No preference", "30 minutes", "1 hour", "2 hours", "More than 2 hours"],
+            )
+            grooming = st.selectbox(
+                "Grooming frequency",
+                ["No preference", "Daily", "More than once a week", "Once a week", "Less than once a week"],
+            )
+            coat = st.selectbox(
+                "Coat length",
+                ["No preference", "Short", "Medium", "Long"],
+            )
+            shedding = st.selectbox(
+                "Shedding tolerance",
+                ["No preference", "No shedding preferred", "Shedding is fine"],
+            )
+
+            st.markdown('<div class="form-section">Your experience</div>', unsafe_allow_html=True)
+            experience = st.selectbox(
+                "Experience with dogs",
+                ["No preference", "None", "Very little", "Average", "A lot", "Very well informed"],
+            )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        btn_col1, btn_col2, _ = st.columns([1.4, 0.8, 3])
+        with btn_col1:
+            find_clicked = st.button("Find matches", type="primary")
+        with btn_col2:
+            if st.button("Reset", type="secondary"):
+                st.session_state.show_results = False
+                st.rerun()
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        if find_clicked:
+            if not st.session_state.openai_key:
+                st.error("Please enter your OpenAI API key in the sidebar to use this feature.")
+            else:
+                # Build a natural-language query from the form answers
+                query_parts = []
+                if space != "No preference":
+                    query_parts.append(f"I live in a {space.lower()}")
+                if size != "No preference":
+                    query_parts.append(f"I want a {size.lower()} sized dog")
+                if exercise != "No preference":
+                    query_parts.append(f"I can provide {exercise} of exercise per day")
+                if grooming != "No preference":
+                    query_parts.append(f"I prefer {grooming.lower()} grooming")
+                if coat != "No preference":
+                    query_parts.append(f"I prefer a {coat.lower()} coat")
+                if shedding != "No preference":
+                    query_parts.append(shedding.lower())
+                if animals != "No preference":
+                    query_parts.append(f"I have {animals.lower()}")
+                if children != "No preference":
+                    query_parts.append(f"children present: {children.lower()}")
+                if experience != "No preference":
+                    query_parts.append(f"my experience with dogs is {experience.lower()}")
+                if dog_type != "No preference":
+                    query_parts.append(f"I am interested in {dog_type.lower()} breeds")
+                if age != "No preference":
+                    query_parts.append(f"preferred dog lifespan: {age.lower()}")
+
+                if not query_parts:
+                    query = "Recommend a few popular, well-rounded dog breeds suitable for most households."
+                else:
+                    query = (
+                        "Please recommend 3 dog breeds for someone with the following lifestyle: "
+                        + "; ".join(query_parts)
+                        + ". For each breed explain why it is a good match."
+                    )
+
+                with st.spinner("Finding matches..."):
+                    rag, err = load_rag_pipeline(st.session_state.openai_key, use_scraped=True)
+                    if err:
+                        st.error(f"Could not load AI pipeline: {err}")
+                    else:
+                        try:
+                            answer = rag.answer_question(query)
+                            st.session_state.match_results = answer
+                            st.session_state.show_results = True
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error getting recommendations: {e}")
+
+    else:
+        # --- Results view ---
+        header_col, edit_col = st.columns([3, 1])
+
+        with header_col:
+            st.subheader("Your breed matches")
+
+        with edit_col:
+            if st.button("Edit answers"):
+                st.session_state.show_results = False
+                st.rerun()
+
+        results = st.session_state.get("match_results", "")
+
+        if results:
+            st.markdown(
+                f'<div class="rag-result-card">{results}</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.info("No matches found. Try adjusting your answers.")
+
+# ---------------------------
+# CHAT PAGE
+# ---------------------------
+
+elif page == "Chat":
+    st.markdown("""
+    <div class="card">
+        <div style="font-size:13.5px;font-weight:600;color:#1e3d33;margin-bottom:3px;">
+            Chat with AI
+        </div>
+        <div style="font-size:12px;color:#9ab0a8;">
+            Ask anything about dog breeds, training, care, or behaviour.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if not st.session_state.messages:
+        st.markdown("""
+        <div style="text-align:center;padding:30px 0 10px;color:#9ab0a8;font-size:13px;">
+            Ask me anything about dogs — breeds, training, care, or behaviour.
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        for sender, msg in st.session_state.messages:
+            # Escape any HTML in the message to avoid injection, then display
+            safe_msg = msg.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            if sender == "You":
+                st.markdown(f"""
+                <div class="chat-bubble-user">
+                    <div class="chat-sender-label">You</div>
+                    <div class="bubble">{safe_msg}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div class="chat-bubble-ai">
+                    <div class="chat-avatar">AI</div>
+                    <div>
+                        <div class="chat-sender-label">Breed Finder AI</div>
+                        <div class="bubble">{safe_msg}</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    input_col, send_col = st.columns([5, 1])
+    with input_col:
+        user_input = st.text_input(
+            "Message",
+            key="chat_input",
+            label_visibility="collapsed",
+            placeholder="e.g. What's a good breed for a flat?",
+        )
+    with send_col:
+        send = st.button("Send", type="primary", use_container_width=True)
+
+    if send and user_input.strip():
+        if not st.session_state.openai_key:
+            st.error("Please enter your OpenAI API key in the sidebar to use the chat.")
+        else:
+            st.session_state.messages.append(("You", user_input.strip()))
+            with st.spinner("Thinking..."):
+                rag, err = load_rag_pipeline(st.session_state.openai_key, use_scraped=True)
+                if err:
+                    reply = f"Sorry, I couldn't load the AI pipeline: {err}"
+                else:
+                    try:
+                        reply = rag.answer_question(user_input.strip())
+                    except Exception as e:
+                        reply = f"Sorry, something went wrong: {e}"
+            st.session_state.messages.append(("AI", reply))
+            st.rerun()
+
+    if st.session_state.messages:
+        if st.button("Clear conversation", type="secondary"):
+            st.session_state.messages = []
+            st.rerun()
+
+# ---------------------------
+# TERMINOLOGY PAGE
+# ---------------------------
+
 elif page == "Terminology":
-    st.markdown('<div class="card">', unsafe_allow_html=True)
 
-    st.subheader("Dog Terminology")
+    groups = [
+        (
+            "#eaf4ee",
+            "#2f5d50",
+            "Pastoral",
+            "Pastoral group",
+            "Herding dogs bred to work cattle, sheep and reindeer — usually with a weatherproof double coat. "
+            "Includes the Collie family, Old English Sheepdogs and Samoyeds.",
+        ),
+        (
+            "#fdf3ea",
+            "#b05e1a",
+            "Hound",
+            "Hound group",
+            "Breeds originally used for hunting by scent or sight. Scent hounds include the Beagle and Bloodhound; "
+            "sight hounds the Whippet and Greyhound. Dignified, aloof but trustworthy companions that enjoy significant exercise.",
+        ),
+        (
+            "#eaedf9",
+            "#3a44a0",
+            "Utility",
+            "Utility group",
+            "A miscellaneous group of mainly non-sporting breeds including the Bulldog, Dalmatian, Akita and Poodle. "
+            "'Utility' means fitness for a purpose — most were bred for a function outside sport or work.",
+        ),
+        (
+            "#f0f9ea",
+            "#3d7a1a",
+            "Gundog",
+            "Gundog group",
+            "Dogs trained to find and/or retrieve game. Divided into Retrievers, Spaniels, Hunt/Point/Retrieve, Pointers "
+            "and Setters. Renowned for their friendly temperament as all-round family dogs.",
+        ),
+        (
+            "#faeaf9",
+            "#8a3a98",
+            "Toy",
+            "Toy group",
+            "Small companion or lap dogs, many bred specifically as companions. Friendly personalities, love attention, "
+            "and require modest exercise.",
+        ),
+        (
+            "#fdf6ea",
+            "#9a6a10",
+            "Terrier",
+            "Terrier group",
+            "Bred to hunt vermin above and below ground — 'Terrier' derives from the Latin Terra (earth). Hardy and brave, "
+            "with a history tracing back to the Middle Ages.",
+        ),
+        (
+            "#eaf4f9",
+            "#1a6a8a",
+            "Working",
+            "Working group",
+            "Guards and search-and-rescue dogs bred over centuries. Includes the Boxer, Great Dane and St. Bernard — "
+            "some of the most heroic and specialised canines in the world.",
+        ),
+        (
+            "#f5f5f5",
+            "#555555",
+            "Breed",
+            "Dog breed",
+            "A standardised type of dog with consistent, heritable traits, selectively bred over generations "
+            "for appearance or function.",
+        ),
+    ]
 
-    with st.expander("Dog Breed"):
-        st.write("A standardized type of dog with consistent traits.")
-
-    with st.expander("Pastoral Group"):
-        st.write("The Pastoral Group consists of herding dogs that are associated with working cattle, sheep, reindeer and other cloven footed animals. Usually this type of dog has a weatherproof double coat to protect it from the elements when working in severe conditions. Breeds such as the Collie family, Old English Sheepdogs and Samoyeds who have been herding reindeer for centuries are but a few included in this group.")
-
-    with st.expander("Hound Group"):
-        st.write("Breeds originally used for hunting either by scent or by sight. The scent hounds include the Beagle and Bloodhound and the sight hounds such breeds as the Whippet and Greyhound. Many of them enjoy a significant amount of exercise and can be described as dignified, aloof but trustworthy companions.")
-
-    with st.expander("Utility Group"):
-        st.write("This group consists of miscellaneous breeds of dog mainly of a non-sporting origin, including the Bulldog, Dalmatian, Akita and Poodle. The name ‘Utility’ essentially means fitness for a purpose and this group consists of an extremely mixed and varied bunch, most breeds having been selectively bred to perform a specific function not included in the sporting and working categories. Some of the breeds listed in the group are the oldest documented breeds of dog in the world.")
-
-    with st.expander("Gundog Group"):
-        st.write("Dogs that were originally trained to find live game and/or to retrieve game that had been shot and wounded. This group is divided into four categories - Retrievers, Spaniels, Hunt/Point/Retrieve, Pointers and Setters - although many of the breeds are capable of doing the same work as the other sub-groups. They make good companions, their temperament making them ideal all-round family dogs.")
-
-    with st.expander("Toy Group"):
-        st.write("The Toy breeds are small companion or lap dogs. Many of the Toy breeds were bred for this capacity although some have been placed into this category simply due to their size. They should have friendly personalities and love attention. They do not need a large amount of exercise and some can be finicky eaters.")
-
-    with st.expander("Terrier Group"):
-        st.write("Dogs originally bred and used for hunting vermin. 'Terrier' comes from the Latin word Terra, meaning earth. This hardy collection of dogs were selectively bred to be extremely brave and tough, and to pursue fox, badger, rat and otter (to name but a few) above and below ground. Dogs of terrier type have been known here since ancient times, and as early as the Middle Ages, these game breeds were portrayed by writers and painters.")
-
-    with st.expander("Working Group"):
-        st.write("Over the centuries these dogs were selectively bred to become guards and search and rescue dogs. Arguably, the working group consists of some of the most heroic canines in the world, aiding humans in many walks of life, including the Boxer, Great Dane and St. Bernard. This group consists of the real specialists in their field who excel in their line of work.")
-
-    st.markdown("</div>", unsafe_allow_html=True)
+    for bg, color, badge, title, desc in groups:
+        st.markdown(
+            f"""
+            <div class="term-group" style="border-left: 3px solid {color};">
+                <div class="term-group-badge" style="background:{bg};color:{color};">{badge}</div>
+                <div>
+                    <h4>{title}</h4>
+                    <p>{desc}</p>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
